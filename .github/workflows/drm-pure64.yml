@@ -1,0 +1,57 @@
+name: drm-pure64
+
+# Step 1-2 of the DRM graphics stack: Google's prebuilt android14-6.1 GKI
+# (virtio-gpu blob + context-init) with its virtio modules and the Apex
+# module-loader initramfs, and minigbm built for bionic with the NDK.
+# Published to the v0.3.0-drm-pure64 pre-release.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/fetch-gki61.sh
+      - scripts/build-minigbm-ndk.sh
+      - guest/gki-init/**
+      - guest/minigbm-ndk/**
+      - .github/workflows/drm-pure64.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld
+      - name: GKI 6.1 kernel + virtio module loader
+        run: scripts/fetch-gki61.sh
+      - name: minigbm (NDK, bionic, aarch64)
+        run: WORK="$RUNNER_TEMP/minigbm" scripts/build-minigbm-ndk.sh
+      - name: Collect
+        run: |
+          mkdir -p dist
+          cp out/gki61/Image-gki6.1-arm64.gz out/gki61/initramfs-gki6.1.cpio.gz dist/
+          cp out/minigbm/libminigbm.so out/minigbm/apex_gbm_probe out/minigbm/apex_gbm_probe.rc dist/
+          cp out/minigbm/build.log dist/minigbm-build.log
+          ( cd dist && sha256sum Image-gki6.1-arm64.gz initramfs-gki6.1.cpio.gz libminigbm.so apex_gbm_probe apex_gbm_probe.rc > SHA256SUMS && cat SHA256SUMS )
+          sed 's/^ *//' > dist/NOTES.md <<'MD'
+          Work in progress: steps 1-2 of the DRM / virtio-gpu graphics stack (docs/ANDROID12.md).
+
+          - `Image-gki6.1-arm64.gz`: Google's android14-6.1 GKI release build 16416853, byte-identical (6.1.162-android14-11-gddab21e1a7ae-ab16416853).
+          - `initramfs-gki6.1.cpio.gz`: guest/gki-init loader + the matching virtio modules from the same build's kernel_virt_aarch64 target (virtio_mmio, virtio_blk, virtio-gpu, virtio_console, virtio_input, virtio_dma_buf, system_heap, virtio-rng, virtio_net, goldfish_battery = battery power_supply only).
+          - `libminigbm.so`, `apex_gbm_probe`: upstream minigbm 96fcdc4 built with NDK r26d for android32 (bionic, AArch64, NEEDED libdrm/liblog/libdl/libc only).
+
+          Not in this release yet: the vendor image. The Android gralloc 4.0 / composer 2.4 HALs and a GLES driver cannot be built from the NDK alone.
+          MD
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=v0.3.0-drm-pure64
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --target "$GITHUB_SHA" \
+            --title "v0.3.0-drm-pure64 (WIP: GKI 6.1 + minigbm)" --notes-file dist/NOTES.md
+          gh release edit "$TAG" --notes-file dist/NOTES.md
+          gh release upload "$TAG" dist/Image-gki6.1-arm64.gz dist/initramfs-gki6.1.cpio.gz dist/libminigbm.so \
+            dist/apex_gbm_probe dist/apex_gbm_probe.rc dist/SHA256SUMS dist/minigbm-build.log --clobber

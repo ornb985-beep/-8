@@ -10,6 +10,9 @@
 #                                         second-stage init runs (default 120 s)
 #
 # Options: --cpus N (6)  --memory SIZE (8G)  --vendor <vendor.img>
+#          --gki61   boot Google's prebuilt android14-6.1 GKI (virtio-gpu blob +
+#                    context-init) with its virtio modules, loaded by the
+#                    out/gki61 initramfs (scripts/fetch-gki61.sh)
 #
 # The default vendor partition is out/vendor_minimal.img (fstab.apex,
 # precompiled SELinux policy, build.prop; scripts/make-minimal-vendor.sh).
@@ -24,7 +27,7 @@ RELEASE="https://github.com/$REPO/releases/download/apex-android12-kernel"
 GSI_URL="https://dl.google.com/developers/android/sc/images/gsi/aosp_arm64-exp-SQ3A.220705.003.A1-8672226-6554a6c4.zip"
 GSI_SIZE=776920909
 
-MODE=gui CPUS=6 MEM=8G VENDOR="" FS_SECS=120
+MODE=gui CPUS=6 MEM=8G VENDOR="" FS_SECS=120 GKI61=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --probe) MODE=probe ;;
@@ -33,7 +36,8 @@ while [[ $# -gt 0 ]]; do
         --cpus) CPUS="$2"; shift ;;
         --memory) MEM="$2"; shift ;;
         --vendor) VENDOR="$2"; shift ;;
-        -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+        --gki61) GKI61=1 ;;
+        -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
         *) echo "unknown option $1" >&2; exit 2 ;;
     esac
     shift
@@ -119,7 +123,23 @@ fi
 # tree (/firmware/android/fstab); the OS disk is virtio slot 0.
 LOGLEVEL=4; [[ "$MODE" == first-stage ]] && LOGLEVEL=6
 CMDLINE="console=hvc0 earlycon=pl011,mmio32,0x09000000 loglevel=$LOGLEVEL root=/dev/vda2 ro rootwait init=/init androidboot.hardware=apex androidboot.console=hvc0 androidboot.selinux=permissive androidboot.boot_devices=a000000.virtio_mmio"
-"$APEX" mkbootimg --kernel "$OUT/Image.gz" --cmdline "$CMDLINE" --out "$OUT/boot.img" >/dev/null
+EXTRA_BC=""
+if [[ "$GKI61" == 1 ]]; then
+    G="$OUT/gki61"; mkdir -p "$G"
+    DRM_RELEASE="https://github.com/$REPO/releases/download/v0.3.0-drm-pure64"
+    if [[ ! -f "$G/Image-gki6.1-arm64.gz" || ! -f "$G/initramfs-gki6.1.cpio.gz" ]]; then
+        say "fetching the android14-6.1 GKI kernel + virtio module loader"
+        { fetch "$DRM_RELEASE/Image-gki6.1-arm64.gz" "$G/Image-gki6.1-arm64.gz" &&
+          fetch "$DRM_RELEASE/initramfs-gki6.1.cpio.gz" "$G/initramfs-gki6.1.cpio.gz"; } || "$ROOT/scripts/fetch-gki61.sh"
+    fi
+    # The initramfs only loads modules and mounts vda2; it is not an Android
+    # first-stage ramdisk, so init must not switch to /first_stage_ramdisk.
+    EXTRA_BC='"androidboot.force_normal_boot" = "0"'
+    "$APEX" mkbootimg --kernel "$G/Image-gki6.1-arm64.gz" --ramdisk "$G/initramfs-gki6.1.cpio.gz" \
+        --cmdline "$CMDLINE" --out "$OUT/boot.img" >/dev/null
+else
+    "$APEX" mkbootimg --kernel "$OUT/Image.gz" --cmdline "$CMDLINE" --out "$OUT/boot.img" >/dev/null
+fi
 
 # 6. device profile
 cat > "$OUT/android12.toml" <<TOML
@@ -136,6 +156,7 @@ boot_image = "boot.img"
 "androidboot.hardware" = "apex"
 "androidboot.console" = "hvc0"
 "androidboot.selinux" = "permissive"
+$EXTRA_BC
 [display]
 width = 1080
 height = 2400

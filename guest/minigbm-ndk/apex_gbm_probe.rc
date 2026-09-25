@@ -1,0 +1,6 @@
+service apex_gbm_probe /vendor/bin/apex_gbm_probe
+    class core
+    user root
+    group root graphics
+    seclabel u:r:su:s0
+    oneshot
