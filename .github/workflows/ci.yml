@@ -44,6 +44,8 @@ jobs:
           ./target/abi_smoke
       - name: Host capabilities
         run: out/apex caps
+      - name: Hypervisor self test (skips with 77 where the runner has no nested virtualization)
+        run: out/apex selftest || test $? -eq 77
       - name: Package
         run: |
           cd out && ditto -c -k --keepParent ApexStudio.app ApexStudio.zip

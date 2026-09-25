@@ -311,17 +311,61 @@ fn dump_state(v: &dyn VirtualCpu) -> String {
     format!("pc={pc:#x} lr={lr:#x} cpsr={cpsr:#x} elr_el1={elr:#x} esr_el1={esr1:#x} far_el1={far:#x}")
 }
 
+/// Released once every vCPU exists, so no guest code runs while the
+/// in-kernel vGIC is still gaining redistributors.
+#[derive(Default)]
+pub struct StartGate {
+    open: Mutex<bool>,
+    cv: Condvar,
+}
+
+impl StartGate {
+    pub fn open(&self) {
+        *self.open.lock().unwrap() = true;
+        self.cv.notify_all();
+    }
+
+    fn wait(&self, cpus: &CpuSet) {
+        let mut o = self.open.lock().unwrap();
+        while !*o && !cpus.is_stopping() {
+            o = self.cv.wait_timeout(o, Duration::from_millis(50)).unwrap().0;
+        }
+    }
+}
+
+/// Start-up handshake with the machine: report creation, then wait for
+/// the gate.
+#[derive(Default)]
+pub struct VcpuStart {
+    pub created: Option<std::sync::mpsc::Sender<bool>>,
+    pub gate: Option<Arc<StartGate>>,
+}
+
 /// Thread body for vCPU `idx`. CPU 0 starts at `boot`; the others wait for
 /// PSCI CPU_ON.
 pub fn vcpu_thread(hub: Arc<VcpuHub>, idx: usize, boot: Option<EntryState>) {
+    vcpu_thread_with(hub, idx, boot, VcpuStart::default())
+}
+
+/// Like [`vcpu_thread`], with creation ordering. Hypervisor.framework
+/// assigns vGIC redistributors in vCPU creation order, so the machine
+/// creates vCPUs strictly by index before any of them runs.
+pub fn vcpu_thread_with(hub: Arc<VcpuHub>, idx: usize, boot: Option<EntryState>, start: VcpuStart) {
     let cpus = hub.cpus.clone();
-    let mut vcpu = match cpus.hv.create_vcpu(idx, mpidr_for(idx)) {
+    let created = cpus.hv.create_vcpu(idx, mpidr_for(idx));
+    if let Some(tx) = &start.created {
+        let _ = tx.send(created.is_ok());
+    }
+    let mut vcpu = match created {
         Ok(v) => v,
         Err(e) => {
             cpus.request_stop(StopReason::Error(format!("vCPU {idx}: {e}")));
             return;
         }
     };
+    if let Some(g) = &start.gate {
+        g.wait(&cpus);
+    }
     let mut pending = boot;
     loop {
         let entry = match pending.take() {

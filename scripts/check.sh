@@ -32,4 +32,12 @@ TOML
 ./target/release/apex inspect "$T/profile.toml" --dts | tee "$T/inspect.txt" | head -8
 grep -q 'compatible = "arm,gic-v3"' "$T/inspect.txt"
 grep -q 'virtio_mmio@a000000' "$T/inspect.txt"
+# The embedded self-test guest must match its source.
+if command -v llvm-objcopy >/dev/null && clang --target=aarch64-linux-gnu -x assembler -c /dev/null -o /dev/null 2>/dev/null; then
+    TMP="$(mktemp -d)"
+    clang --target=aarch64-linux-gnu -nostdlib -c guest/selftest/selftest.S -o "$TMP/s.o"
+    llvm-objcopy -O binary --only-section=.text "$TMP/s.o" "$TMP/s.bin"
+    cmp "$TMP/s.bin" guest/selftest/selftest.bin
+    rm -rf "$TMP"
+fi
 echo "all checks passed"

@@ -34,7 +34,7 @@ use apex_devices::virtio::{VirtioDevice, VirtioInterrupt};
 
 use crate::config::*;
 use crate::fdt_gen::{self, FdtParams, VirtioNode};
-use crate::vcpu::{vcpu_thread, CpuSet, HwIrqChip, StopReason, VcpuHub};
+use crate::vcpu::{vcpu_thread_with, CpuSet, HwIrqChip, StartGate, StopReason, VcpuHub, VcpuStart};
 
 pub type ByteSink = Arc<dyn Fn(&[u8]) + Send + Sync>;
 
@@ -413,19 +413,30 @@ impl Machine {
         if self.cfg.vsync == VsyncSource::Internal {
             self.controls.display.start_internal_vsync();
         }
+        // Create vCPUs one by one in index order (vGIC redistributor
+        // assignment follows creation order), then release them together.
+        let gate = Arc::new(StartGate::default());
         for i in 0..self.cfg.cpus {
             let hub = self.hub.clone();
             let entry = (i == 0).then_some(self.boot_entry);
+            let (tx, rx) = std::sync::mpsc::channel();
+            let start = VcpuStart { created: Some(tx), gate: Some(gate.clone()) };
             let t = std::thread::Builder::new()
                 .name(format!("vcpu-{i}"))
                 .stack_size(4 << 20)
                 .spawn(move || {
                     apex_core::sys::set_thread_latency_critical();
-                    vcpu_thread(hub, i, entry)
+                    vcpu_thread_with(hub, i, entry, start)
                 })
                 .map_err(Error::Io)?;
             threads.push(t);
+            if !rx.recv().unwrap_or(false) {
+                // The failing thread already recorded the error.
+                gate.open();
+                return Err(Error::Hypervisor(format!("could not create vCPU {i}")));
+            }
         }
+        gate.open();
         Ok(())
     }
 

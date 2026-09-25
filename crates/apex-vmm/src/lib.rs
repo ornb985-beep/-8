@@ -17,6 +17,7 @@ pub mod fdt_gen;
 pub mod ffi;
 pub mod inspect;
 pub mod machine;
+pub mod selftest;
 pub mod vcpu;
 
 pub use config::VmConfig;

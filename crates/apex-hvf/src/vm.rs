@@ -44,8 +44,9 @@ pub fn capabilities() -> String {
         // SAFETY: out-pointer valid.
         unsafe { f(&mut max_ipa) };
     }
+    let ipa = if max_ipa == 0 { "unknown".to_string() } else { format!("{max_ipa} bits") };
     format!(
-        "Hypervisor.framework: max vCPUs {max_vcpus}, max IPA {max_ipa} bits, in-kernel vGICv3 {}, CNTFRQ {} Hz",
+        "Hypervisor.framework: max vCPUs {max_vcpus}, max IPA {ipa}, in-kernel vGICv3 {}, CNTFRQ {} Hz",
         if late.has_gic() { "available (macOS 15+)" } else { "unavailable (userspace GICv3 will be used)" },
         read_cntfrq()
     )

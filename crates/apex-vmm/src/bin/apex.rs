@@ -23,6 +23,7 @@ USAGE:
               [--cpus <n>] [--memory <size>] [--gic auto|hardware|emulated]
     apex inspect <profile.toml> [--dts]  Assemble the machine without running it
     apex bootimg <image>                 Describe an Android boot/init_boot/vendor_boot image
+    apex selftest                        Run a built-in guest: MMIO, GIC, timer IRQ, SMP, PSCI
     apex caps                            Host virtualization capabilities
     apex version
 
@@ -162,6 +163,38 @@ fn cmd_bootimg(path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Exit code 77 = skipped (the host cannot run VMs), as in automake.
+fn cmd_selftest() -> ExitCode {
+    use apex_vmm::selftest;
+    println!("{}", apex_hvf::host_capabilities());
+    let (mut failed, mut ran) = (0, 0);
+    for gic in [GicRequest::Emulated, GicRequest::Hardware] {
+        let label = format!("{gic:?} GIC");
+        match selftest::run(gic, std::time::Duration::from_secs(15)) {
+            Ok(o) => {
+                ran += 1;
+                let verdict = if o.passed() { "PASS" } else { "FAIL" };
+                if !o.passed() {
+                    failed += 1;
+                }
+                println!("[{verdict}] {label:<14} {:>7.1} ms  stop={:?}  console={:?}", o.elapsed.as_secs_f64() * 1e3, o.stop, o.console);
+            }
+            Err(e) if selftest::is_unavailable(&e) => println!("[SKIP] {label:<14} {e}"),
+            Err(e) => {
+                failed += 1;
+                println!("[FAIL] {label:<14} {e}");
+            }
+        }
+    }
+    if failed > 0 {
+        ExitCode::FAILURE
+    } else if ran == 0 {
+        ExitCode::from(77)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
 fn main() -> ExitCode {
     let mut args = Args { rest: std::env::args().skip(1).collect() };
     if let Some(l) = args.take_opt("--log") {
@@ -234,6 +267,7 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             }
         },
+        "selftest" => Ok(cmd_selftest()),
         "caps" => {
             println!("{}", apex_hvf::host_capabilities());
             Ok(ExitCode::SUCCESS)

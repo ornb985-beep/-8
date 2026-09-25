@@ -109,7 +109,7 @@ Android App ─ RenderThread ─ SurfaceFlinger ─ HWC3 (drm_hwcomposer) ─ DR
 
 1. **声明 120 Hz**：virtio-gpu 协商 `VIRTIO_GPU_F_EDID`，VMM 生成 EDID 1.4（CVT-RB 时序，像素时钟四舍五入后回算刷新率误差 < 0.05 Hz，含物理尺寸 mm）。Linux DRM 据此创建 1080×2400@120 模式，drm_hwcomposer 与 SurfaceFlinger 得到 120 Hz 显示配置。
 2. **节拍锁定**：Linux virtio-gpu 在 dumb buffer 翻页时对 `RESOURCE_FLUSH` 附带 fence 并等待。VMM 把带 fence 的 flush 响应**暂扣到下一次虚拟 VSync** 才归还（同一时间线上后续 fence 按序排队，保持 fence 单调语义）。结果：guest 的每次翻页严格对齐 8.333 ms 节拍。
-3. **与宿主显示解耦**：`vsync = "internal"` 时节拍来自 VMM 自己的高精度定时器（`Ticker`：先睡眠、最后 300 µs 自旋），即使外接 60 Hz 显示器 guest 仍按 120 Hz 运行；`vsync = "host"` 时由前端的 `CAMetalDisplayLink` 回调驱动。
+3. **与宿主显示解耦**：`vsync = "internal"` 时节拍来自 VMM 自己的节拍线程：线程申请 Mach 实时调度（`THREAD_TIME_CONSTRAINT_POLICY`，与 CoreAudio/CoreVideo 同类），以宿主计数器上的**绝对截止时间**调用 `mach_wait_until`，最后 100 µs 自旋；宿主过载时错过的周期计入 `missed_vsyncs` 而不是补发突发 VSync。即使外接 60 Hz 显示器，guest 仍按 120 Hz 运行；`vsync = "host"` 时由前端的 `CAMetalDisplayLink` 回调驱动。
 4. **三缓冲零拷贝**：一个槽在写、一个是最新帧、一个被 GPU 占用。前端为每个槽只创建一次 `MTLBuffer(bytesNoCopy:)`，`makeTexture(descriptor:offset:bytesPerRow:)` 得到线性纹理，着色器按 guest 像素格式做通道重排。槽位在最后一个引用它的命令缓冲完成后才归还（`PinnedFrame`）。
 5. **guest blob**：Linux 在支持 `RESOURCE_BLOB` 时把 dumb buffer 创建为 guest 内存 blob 并用 `SET_SCANOUT_BLOB` 扫描输出——此时连 `TRANSFER_TO_HOST_2D` 都不需要，VMM 直接从 guest 物理页组帧。
 
@@ -208,6 +208,7 @@ out/apex run profiles/phone-120hz.toml                      # 无界面
 open -a out/ApexStudio.app --args $PWD/profiles/phone-120hz.toml   # 图形界面
 out/apex inspect profiles/phone-120hz.toml --dts            # 不运行，仅装配并打印设备树（任意平台）
 out/apex bootimg images/vendor_boot.img                     # 解析 Android 引导镜像
+out/apex selftest                                           # 内置裸机客户机自检（见 13 节）
 ```
 先用任意 arm64 Linux 内核验证 VMM：`apex boot --kernel Image --cmdline "console=ttyAMA0 earlycon"`。
 
@@ -241,8 +242,10 @@ out/apex bootimg images/vendor_boot.img                     # 解析 Android 引
 | `apex-vmm` | 配置、设备树、vCPU 循环（脚本化 vCPU）、C ABI、**整机端到端**（Android 镜像 → 装配 → vCPU 从内核入口启动 → MMIO → UART → PSCI 关机） | 11 |
 
 ```bash
-scripts/check.sh    # fmt + clippy(-D warnings) + 全部测试 + C ABI 冒烟测试
+scripts/check.sh    # fmt + clippy(-D warnings) + 全部测试 + C ABI 冒烟测试 + CLI 装配 + 自检镜像一致性
 ```
+
+**`apex selftest`（真机自检）**：`guest/selftest/selftest.S` 是一段手写 AArch64 裸机程序，伪装成 Linux `Image` 走正常引导路径，依次验证：PL011 MMIO 写（带 ISV 的数据异常）、virtio-mmio 魔数读取、GICv3 分发器/重分发器/ICC 初始化、vCPU 处于 WFI 时虚拟定时器中断经 GIC 投递、PSCI `CPU_ON` 拉起 vCPU 1、PSCI `SYSTEM_OFF`。分别在用户态 GIC 与内核态 vGIC 两种模式下运行，期望控制台输出 `APEX selftest: MGT2`。宿主无法创建虚拟机时返回退出码 77（跳过）。
 CI（`.github/workflows/ci.yml`）：Linux 跑全部检查并对 `aarch64-apple-darwin` 做 clippy；macOS arm64 跑测试、构建签名 `ApexStudio.app` 并上传产物。
 
 ---
@@ -253,9 +256,11 @@ CI（`.github/workflows/ci.yml`）：Linux 跑全部检查并对 `aarch64-apple-
 * 全部 Rust 代码在 Linux 上编译、100 个单元/集成测试通过、clippy 零警告；HVF 后端在 `aarch64-apple-darwin` 目标下通过类型检查与 clippy。
 * C 头文件与 `libapex_vmm.a` 链接通过，结构体布局经 `_Static_assert` 校验。
 * 整机装配路径（Android v4 镜像 → initrd/bootconfig → 设备树 → vCPU 启动状态）在模拟 hypervisor 上端到端通过。
+* **在 GitHub Actions 的 Apple Silicon（macOS 15）runner 上**：Rust 原生测试全部通过；Swift 前端编译链接成功并打包签名为 `ApexStudio.app`；C ABI 冒烟测试通过；`apex caps` 在真机上确认内核态 vGICv3 符号可运行时解析、`CNTFRQ_EL0 = 24 MHz`。
 
 **尚未验证（需要 Apple Silicon 真机）**
-* 真实 `hv_vcpu_run` 下启动 Linux / Android——HVF 绑定按 Apple 头文件与 QEMU/applevisor 交叉核对编写，但本仓库开发环境不是 Mac。
+* 真实 `hv_vcpu_run` 下启动 Linux / Android——HVF 绑定按 Apple 头文件与 QEMU/applevisor 交叉核对编写。CI runner 本身是虚拟机，通常没有嵌套虚拟化，`apex selftest` 在那里会报告跳过；请在本机 Mac 上运行 `out/apex selftest` 作为第一步验证。
+* vCPU 按索引串行创建、全部创建完成后才统一放行（与 QEMU 一致），以保证内核 vGIC 的重分发器顺序与 MPIDR 对应——该假设需在真机自检中确认。
 * Swift 前端需在 macOS CI 或本机 `swift build` 验证；120 Hz 实测帧率与触控延迟需真机测量。
 * 内核态 vGIC 模式下，若 HVF 仍将 WFI 陷入用户态，VMM 以 ≤500 µs 的睡眠上限兜底（无法感知宿主内核内的 SGI）；QEMU 的实现表明该模式下 WFI 由框架内部处理，需实测确认。
 * gfxstream 集成按官方头文件实现，需自行为 macOS 构建 `libgfxstream_backend.dylib` 后验证。
