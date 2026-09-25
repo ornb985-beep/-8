@@ -412,14 +412,22 @@ mod tests {
         hub.add_vsync_listener(Box::new(move |_| {
             c.fetch_add(1, Ordering::SeqCst);
         }));
+        let t0 = Instant::now();
         hub.start_internal_vsync();
         std::thread::sleep(Duration::from_millis(210));
         hub.stop_internal_vsync();
+        let elapsed = t0.elapsed();
         let n = count.load(Ordering::SeqCst);
         let missed = hub.stats().missed_vsyncs.load(Ordering::SeqCst);
-        // Every elapsed period is either delivered or accounted as missed
-        // (an overloaded host must not produce bursts of catch-up vsyncs).
-        assert!((35..=60).contains(&(n + missed)), "periods in 210ms at 240Hz: {n} delivered + {missed} missed");
+        // Compare against the time that actually passed (the test thread's
+        // own sleep may overshoot on a loaded host). Every elapsed period is
+        // either delivered or accounted as missed, never burst.
+        let expected = elapsed.as_secs_f64() * 240.0;
+        let accounted = (n + missed) as f64;
+        assert!(
+            (accounted - expected).abs() <= expected * 0.1 + 3.0,
+            "{n} delivered + {missed} missed in {elapsed:?} (expected ~{expected:.0})"
+        );
         assert!(n >= 10, "pacer barely ran: {n}");
     }
 
