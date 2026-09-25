@@ -17,7 +17,7 @@ apex-hvf → Hypervisor.framework (EL2 · stage-2 · in-kernel vGICv3 on macOS 1
 - **Hardware interrupts** — Apple's in-kernel vGICv3 on macOS 15+ (resolved at runtime), full userspace GICv3 fallback on macOS 14.
 - **VMM as bootloader** — parses Android `boot.img` v0–v4, `init_boot.img`, `vendor_boot.img` v4, builds initrd + bootconfig, gzip/LZ4 kernels, generates the device tree.
 - **Phone-grade devices** — virtio-gpu (2D, guest blobs, gfxstream 3D), multitouch virtio-input (MT protocol B, Mac trackpad → fingers), virtio-blk with synthesized GPT (`/dev/block/by-name/*`), virtio-net, console, rng, PL011, PL031, goldfish battery mirrored from the Mac.
-- **Tested** — 100 unit/integration tests incl. an end-to-end machine boot on a scripted hypervisor; clippy-clean on Linux and `aarch64-apple-darwin`.
+- **Tested** — 103 unit/integration tests incl. an end-to-end machine boot on a scripted hypervisor; clippy-clean on Linux and `aarch64-apple-darwin`.
 
 ## Quick start (Apple Silicon, macOS 14+)
 

@@ -239,7 +239,7 @@ out/apex selftest                                           # 内置裸机客户
 | `apex-core` | 内存、总线、IRQ、FDT 读写、TOML、CRC32、同步、FFI | 15 |
 | `apex-arm64` | ESR、sysreg（数值与 `hv_sys_reg_t` 对照）、PSCI/TRNG、GICv3、引导镜像、bootconfig、gzip、LZ4 | 37 |
 | `apex-devices` | virtqueue（EVENT_IDX、间接描述符、环路检测）、virtio-mmio 握手、blk、GPT、gpu（VSync 节拍 fence）、EDID、input、console、net、显示交换链、PL011/PL031/电池 | 37 |
-| `apex-vmm` | 配置、设备树、vCPU 循环（脚本化 vCPU）、C ABI、**整机端到端**（Android 镜像 → 装配 → vCPU 从内核入口启动 → MMIO → UART → PSCI 关机） | 11 |
+| `apex-vmm` | 配置、设备树、vCPU 循环（脚本化 vCPU）、C ABI、**整机端到端**（Android 镜像 → 装配 → vCPU 从内核入口启动 → MMIO → UART → PSCI 关机）、自检镜像校验 | 14 |
 
 ```bash
 scripts/check.sh    # fmt + clippy(-D warnings) + 全部测试 + C ABI 冒烟测试 + CLI 装配 + 自检镜像一致性
@@ -253,7 +253,7 @@ CI（`.github/workflows/ci.yml`）：Linux 跑全部检查并对 `aarch64-apple-
 ## 14. 验证状态与已知限制（请务必阅读）
 
 **已验证（本仓库 CI / 本地）**
-* 全部 Rust 代码在 Linux 上编译、100 个单元/集成测试通过、clippy 零警告；HVF 后端在 `aarch64-apple-darwin` 目标下通过类型检查与 clippy。
+* 全部 Rust 代码在 Linux 上编译、103 个单元/集成测试通过、clippy 零警告；HVF 后端在 `aarch64-apple-darwin` 目标下通过类型检查与 clippy。
 * C 头文件与 `libapex_vmm.a` 链接通过，结构体布局经 `_Static_assert` 校验。
 * 整机装配路径（Android v4 镜像 → initrd/bootconfig → 设备树 → vCPU 启动状态）在模拟 hypervisor 上端到端通过。
 * **在 GitHub Actions 的 Apple Silicon（macOS 15）runner 上**：Rust 原生测试全部通过；Swift 前端编译链接成功并打包签名为 `ApexStudio.app`；C ABI 冒烟测试通过；`apex caps` 在真机上确认内核态 vGICv3 符号可运行时解析、`CNTFRQ_EL0 = 24 MHz`。
