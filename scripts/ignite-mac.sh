@@ -23,7 +23,17 @@ say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 ok()   { printf '    \033[1;32m✓\033[0m %s\n' "$*"; }
 bad()  { printf '    \033[1;31m✗\033[0m %s\n' "$*"; }
 die()  { bad "$*"; exit 1; }
-fetch() { curl -fL --retry 3 --progress-bar -o "$2.part" "$1" && mv "$2.part" "$2"; }
+fetch() {
+    curl -fL --retry 3 --progress-bar -o "$2.part" "$1" && { mv "$2.part" "$2"; return 0; }
+    rm -f "$2.part"
+    # Private repository: anonymous downloads return 401/404; use the GitHub CLI login.
+    if [[ "$1" == */releases/download/* ]] && command -v gh >/dev/null; then
+        local tag="${1#*/releases/download/}"; tag="${tag%%/*}"
+        gh release download "$tag" -R ornb985-beep/-8 -p "$(basename "$1")" -O "$2" --clobber && return 0
+    fi
+    echo "download failed: $1 (private repo? run: brew install gh && gh auth login)" >&2
+    return 1
+}
 sha()  { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # ---------------------------------------------------------------- 0. host
