@@ -136,6 +136,8 @@ pub struct DisplayStats {
     pub frames_submitted: AtomicU64,
     pub frames_presented: AtomicU64,
     pub vsyncs: AtomicU64,
+    /// Refresh periods the pacer could not honour (host overloaded).
+    pub missed_vsyncs: AtomicU64,
     pub last_submit_ns: AtomicU64,
 }
 
@@ -321,10 +323,18 @@ impl DisplayHub {
             .spawn(move || {
                 sys::set_thread_latency_critical();
                 let mut ticker = Ticker::new(period);
+                if !ticker.make_thread_realtime() {
+                    apex_core::debug!("vsync: real-time scheduling unavailable, using QoS only");
+                }
                 while !s.is_stopped() {
-                    ticker.wait();
+                    let elapsed = ticker.wait();
                     match hub.upgrade() {
-                        Some(h) => h.vsync(),
+                        Some(h) => {
+                            if elapsed > 1 {
+                                h.stats.missed_vsyncs.fetch_add(elapsed - 1, Ordering::Relaxed);
+                            }
+                            h.vsync()
+                        }
                         None => break,
                     }
                 }
@@ -406,7 +416,11 @@ mod tests {
         std::thread::sleep(Duration::from_millis(210));
         hub.stop_internal_vsync();
         let n = count.load(Ordering::SeqCst);
-        assert!((35..=60).contains(&n), "vsyncs in 210ms at 240Hz: {n}");
+        let missed = hub.stats().missed_vsyncs.load(Ordering::SeqCst);
+        // Every elapsed period is either delivered or accounted as missed
+        // (an overloaded host must not produce bursts of catch-up vsyncs).
+        assert!((35..=60).contains(&(n + missed)), "periods in 210ms at 240Hz: {n} delivered + {missed} missed");
+        assert!(n >= 10, "pacer barely ran: {n}");
     }
 
     #[test]

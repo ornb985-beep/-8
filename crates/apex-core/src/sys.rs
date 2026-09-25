@@ -263,6 +263,81 @@ pub fn ticks_to_ns(ticks: u64) -> u64 {
     ((ticks as u128 * n as u128) / d as u128) as u64
 }
 
+/// Convert nanoseconds to host ticks.
+pub fn ns_to_ticks(ns: u64) -> u64 {
+    let (n, d) = host_timebase();
+    ((ns as u128 * d as u128) / n.max(1) as u128) as u64
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct TimeConstraintPolicy {
+    period: u32,
+    computation: u32,
+    constraint: u32,
+    preemptible: i32,
+}
+
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn mach_wait_until(deadline: u64) -> c_int;
+    fn pthread_self() -> usize;
+    fn pthread_mach_thread_np(thread: usize) -> u32;
+    fn thread_policy_set(thread: u32, flavor: u32, policy: *mut i32, count: u32) -> c_int;
+}
+
+/// Block until the host counter reaches `deadline` (absolute, in ticks).
+/// On macOS this is `mach_wait_until`, which together with a time
+/// constraint policy wakes within tens of microseconds.
+pub fn sleep_until_ticks(deadline: u64) {
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: plain Mach trap on the calling thread.
+        unsafe { mach_wait_until(deadline) };
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let now = host_ticks();
+        if deadline > now {
+            std::thread::sleep(std::time::Duration::from_nanos(ticks_to_ns(deadline - now)));
+        }
+    }
+}
+
+/// Give the calling thread a Mach real-time "time constraint" policy (the
+/// scheduling class CoreAudio and CoreVideo use): the kernel guarantees
+/// `computation_ns` of CPU within `constraint_ns` of every `period_ns`.
+/// Used for the virtual vsync so frame pacing does not depend on timer
+/// coalescing or system load. Returns false where unsupported.
+pub fn set_thread_time_constraint(period_ns: u64, computation_ns: u64, constraint_ns: u64) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        const THREAD_TIME_CONSTRAINT_POLICY: u32 = 2;
+        const THREAD_TIME_CONSTRAINT_POLICY_COUNT: u32 = 4;
+        let mut p = TimeConstraintPolicy {
+            period: ns_to_ticks(period_ns) as u32,
+            computation: ns_to_ticks(computation_ns) as u32,
+            constraint: ns_to_ticks(constraint_ns) as u32,
+            preemptible: 1,
+        };
+        // SAFETY: valid policy struct for the calling thread's Mach port.
+        let r = unsafe {
+            thread_policy_set(
+                pthread_mach_thread_np(pthread_self()),
+                THREAD_TIME_CONSTRAINT_POLICY,
+                &mut p as *mut TimeConstraintPolicy as *mut i32,
+                THREAD_TIME_CONSTRAINT_POLICY_COUNT,
+            )
+        };
+        r == 0
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (period_ns, computation_ns, constraint_ns);
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
