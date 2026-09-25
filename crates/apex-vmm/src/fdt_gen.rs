@@ -25,7 +25,6 @@ pub struct FdtParams<'a> {
     pub gic_mode: GicMode,
     pub gic: GicGeometry,
     pub virtio: &'a [VirtioNode],
-    pub timer_freq: u64,
     pub model: &'a str,
     pub serial_console: bool,
 }
@@ -101,7 +100,8 @@ pub fn build(p: &FdtParams) -> Result<Vec<u8>> {
         cells.extend_from_slice(&ppi(intid));
     }
     w.prop_cells("interrupts", &cells)?;
-    w.prop_u32("clock-frequency", p.timer_freq as u32)?;
+    // No clock-frequency: the kernel reads CNTFRQ_EL0 (programmed by XNU),
+    // as the arm,arch_timer binding recommends.
     w.prop_empty("always-on")?;
     w.end_node()?;
 
@@ -190,7 +190,6 @@ mod tests {
             gic_mode: GicMode::Emulated,
             gic: GicGeometry::default(),
             virtio: &virtio,
-            timer_freq: 24_000_000,
             model: "Apex One",
             serial_console: true,
         })

@@ -1,0 +1,5 @@
+/dev/hvc1                          u:object_r:apex_bridge_device:s0
+/dev/block/by-name/misc            u:object_r:misc_block_device:s0
+/dev/block/by-name/metadata        u:object_r:metadata_block_device:s0
+/dev/block/by-name/userdata        u:object_r:userdata_block_device:s0
+/dev/block/by-name/super           u:object_r:super_block_device:s0

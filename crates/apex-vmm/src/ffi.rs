@@ -333,7 +333,11 @@ pub unsafe extern "C" fn apex_touch_frame(p: *mut ApexVm, contacts: *const ApexT
 pub unsafe extern "C" fn apex_key(p: *mut ApexVm, linux_code: u16, down: bool) {
     guard((), || {
         if let Some(v) = vm(p) {
-            v.machine.controls.keys.key(linux_code, down);
+            let c = &v.machine.controls;
+            match (&c.keyboard, apex_devices::virtio::input::is_phone_button(linux_code)) {
+                (Some(kb), false) => kb.key(linux_code, down),
+                _ => c.buttons.key(linux_code, down),
+            }
         }
     })
 }

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The virtual panel is a 120 Hz display (EDID from the VMM). -->
+    <integer name="config_defaultPeakRefreshRate">120</integer>
+    <integer name="config_defaultRefreshRate">120</integer>
+    <!-- No idle downclocking: the host always composes at the panel rate. -->
+    <bool name="config_allowAutoBrightnessWhileDozing">false</bool>
+    <bool name="config_enableScreenshotChord">true</bool>
+    <!-- Rounded phone corners on the emulated panel. -->
+    <dimen name="rounded_corner_radius">48px</dimen>
+    <bool name="config_supportsRoundedCornersOnWindows">true</bool>
+</resources>

@@ -1,0 +1,17 @@
+# Direct kernel boot, useful to validate the VMM with any arm64 Linux
+# kernel before building Android:
+#   apex run profiles/examples/kernel-smoke.toml
+[vm]
+cpus = 4
+memory = "2G"
+
+[boot]
+kernel = "../../images/Image"
+# initrd = "../../images/initramfs.cpio.gz"
+cmdline = "console=ttyAMA0 earlycon=pl011,mmio32,0x09000000 rdinit=/bin/sh"
+
+[display]
+refresh = 120
+
+[console]
+serial = "stdout"

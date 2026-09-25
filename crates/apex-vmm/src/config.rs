@@ -86,6 +86,8 @@ pub struct VmConfig {
     pub serial: SerialSink,
     pub identity: Identity,
     pub touch_slots: u32,
+    /// Expose a full keyboard (hides Android's soft keyboard by default).
+    pub keyboard: bool,
     pub block_queues: u16,
 }
 
@@ -113,6 +115,7 @@ impl VmConfig {
                 serial: "APEX00000001".into(),
             },
             touch_slots: 10,
+            keyboard: true,
             block_queues: 4,
         }
     }
@@ -325,10 +328,14 @@ impl VmConfig {
         }
 
         let mut touch_slots = 10;
+        let mut keyboard = true;
         if let Some(i) = v.table("input")? {
-            i.deny_unknown(&["touch_slots"])?;
+            i.deny_unknown(&["touch_slots", "keyboard"])?;
             if let Some(n) = i.int("touch_slots")? {
                 touch_slots = n.clamp(1, 16) as u32;
+            }
+            if let Some(k) = i.bool("keyboard")? {
+                keyboard = k;
             }
         }
 
@@ -347,6 +354,7 @@ impl VmConfig {
             serial,
             identity,
             touch_slots,
+            keyboard,
             block_queues,
         })
     }
@@ -439,5 +447,25 @@ socket = "/tmp/gvproxy.sock"
         assert!(VmConfig::parse("[boot]\nkernel = \"a\"\n[vm]\nmemory = \"64M\"\n", Path::new("/")).is_err());
         assert!(VmConfig::parse("[boot]\nkernel = \"a\"\n[display]\nrefresh = 500\n", Path::new("/")).is_err());
         assert!(VmConfig::parse("[boot]\nkernel = \"a\"\n[display]\nrenderer = \"gfxstream\"\n", Path::new("/")).is_err());
+    }
+}
+
+#[cfg(test)]
+mod shipped_profiles {
+    use super::*;
+
+    #[test]
+    fn shipped_profiles_are_valid() {
+        for (name, text) in [
+            ("phone-120hz", include_str!("../../../profiles/phone-120hz.toml")),
+            ("tablet-120hz", include_str!("../../../profiles/tablet-120hz.toml")),
+            ("kernel-smoke", include_str!("../../../profiles/examples/kernel-smoke.toml")),
+        ] {
+            let c = VmConfig::parse(text, Path::new("/p")).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(c.display.refresh_hz, 120, "{name}");
+        }
+        let tab = VmConfig::parse(include_str!("../../../profiles/tablet-120hz.toml"), Path::new("/p")).unwrap();
+        assert_eq!((tab.display.width, tab.display.height), (2560, 1600));
+        assert_eq!(tab.identity.model, "Apex Tab");
     }
 }

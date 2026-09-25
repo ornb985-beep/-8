@@ -1,0 +1,71 @@
+# Apex-AOSP device profile: 11-inch tablet, 120 Hz panel.
+# Paths are relative to this file. Build the images with guest/aosp (see
+# docs/WHITEPAPER.md §8) and drop them into ../images.
+
+[device]
+manufacturer = "Apex"
+brand = "apex"
+model = "Apex Tab"
+name = "apex_tablet"
+serial = "APEXTAB00001"
+
+[vm]
+cpus = 8              # Apple M-series performance cores are used via QoS
+memory = "8G"
+gic = "auto"          # auto = in-kernel vGICv3 on macOS 15+, userspace GICv3 otherwise
+disk_cache = "writeback"
+block_queues = 4
+
+[boot]
+# The VMM is the bootloader: boot.img (GKI kernel), init_boot.img (generic
+# ramdisk), vendor_boot.img (vendor ramdisk, modules, bootconfig).
+boot_image = "../images/boot.img"
+init_boot_image = "../images/init_boot.img"
+vendor_boot_image = "../images/vendor_boot.img"
+cmdline = "console=hvc0 earlycon=pl011,mmio32,0x09000000 loglevel=4 printk.devkmsg=on"
+
+[boot.bootconfig]
+"androidboot.selinux" = "enforcing"
+"androidboot.hardware.hwcomposer.mode" = "client"
+
+[display]
+width = 2560
+height = 1600
+refresh = 120         # EDID + virtual vsync; SurfaceFlinger paces at this rate
+dpi = 320
+vsync = "internal"    # high-precision VMM timer (independent of the Mac display)
+renderer = "guest"    # "gfxstream" for host GPU rendering (see docs)
+# gfxstream_library = "../images/libgfxstream_backend.dylib"
+
+# One composite disk with a GPT: Android finds /dev/block/by-name/* exactly
+# like on UFS storage.
+[[disk]]
+name = "apex-os"
+[[disk.partition]]
+name = "misc"
+path = "../images/misc.img"
+[[disk.partition]]
+name = "vbmeta_a"
+path = "../images/vbmeta.img"
+readonly = true
+[[disk.partition]]
+name = "super"
+path = "../images/super.img"
+[[disk.partition]]
+name = "metadata"
+path = "../images/metadata.img"
+[[disk.partition]]
+name = "userdata"
+path = "../images/userdata.img"
+
+[network]
+# gvproxy (user-mode NAT, no root) — `gvproxy -listen-vfkit unixgram:///tmp/apex-net.sock`
+mode = "unixgram"
+socket = "/tmp/apex-net.sock"
+
+[console]
+serial = "stdout"
+
+[input]
+touch_slots = 10
+keyboard = true      # Mac keyboard typing; Android hides its soft keyboard while present

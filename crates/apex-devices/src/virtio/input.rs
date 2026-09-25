@@ -20,6 +20,25 @@ const CFG_PROP_BITS: u8 = 0x10;
 const CFG_EV_BITS: u8 = 0x11;
 const CFG_ABS_INFO: u8 = 0x12;
 
+/// Keys routed to the button device instead of the keyboard.
+pub const PHONE_BUTTONS: [u16; 11] = [
+    key::POWER,
+    key::VOLUMEDOWN,
+    key::VOLUMEUP,
+    key::MUTE,
+    key::BACK,
+    key::HOMEPAGE,
+    key::APPSELECT,
+    key::MENU,
+    key::CAMERA,
+    key::SEARCH,
+    key::WAKEUP,
+];
+
+pub fn is_phone_button(code: u16) -> bool {
+    PHONE_BUTTONS.contains(&code)
+}
+
 const EVENTQ: usize = 0;
 const STATUSQ: usize = 1;
 const MAX_PENDING: usize = 8192;
@@ -79,21 +98,36 @@ impl InputSpec {
         }
     }
 
-    /// Hardware buttons + a full keyboard.
+    /// The phone's physical buttons. Deliberately *not* an alphabetic
+    /// keyboard, so Android keeps showing the on-screen keyboard.
+    pub fn buttons() -> InputSpec {
+        let mut events = BTreeMap::new();
+        events.insert(ev::KEY, PHONE_BUTTONS.to_vec());
+        InputSpec {
+            name: "Apex Buttons".into(),
+            serial: "apex-buttons-0".into(),
+            bustype: BUS_VIRTUAL,
+            vendor: 0x1d6b,
+            product: 0xa002,
+            version: 1,
+            props: vec![],
+            events,
+            abs: BTreeMap::new(),
+        }
+    }
+
+    /// A full keyboard (typing from the Mac keyboard).
     pub fn keyboard() -> InputSpec {
-        let mut keys: Vec<u16> = (1..=248).collect();
-        keys.extend([key::APPSELECT, key::HOMEPAGE, key::BACK, key::MENU, key::SEARCH, key::CAMERA, key::WAKEUP, key::SLEEP]);
-        keys.sort_unstable();
-        keys.dedup();
+        let keys: Vec<u16> = (1..=248).filter(|k| !PHONE_BUTTONS.contains(k)).collect();
         let mut events = BTreeMap::new();
         events.insert(ev::KEY, keys);
         events.insert(ev::REP, vec![0, 1]);
         InputSpec {
-            name: "Apex Keys".into(),
-            serial: "apex-keys-0".into(),
+            name: "Apex Keyboard".into(),
+            serial: "apex-keyboard-0".into(),
             bustype: BUS_VIRTUAL,
             vendor: 0x1d6b,
-            product: 0xa002,
+            product: 0xa003,
             version: 1,
             props: vec![],
             events,

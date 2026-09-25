@@ -1,0 +1,29 @@
+# init script for androidboot.hardware=apex (the Apex-AOSP virtual phone).
+
+on early-init
+    # Screen density from the VMM profile (bootconfig androidboot.lcd_density).
+    setprop ro.sf.lcd_density ${ro.boot.lcd_density}
+    # Virtual panel parameters exported by the VMM.
+    setprop vendor.apex.display ${ro.boot.apex.display}
+    setprop vendor.apex.refresh_rate ${ro.boot.apex.refresh_rate}
+    setprop ro.hardware.hwcomposer ${ro.boot.hardware.hwcomposer}
+    setprop ro.hardware.egl ${ro.boot.hardware.egl}
+    setprop ro.hardware.vulkan ${ro.boot.hardware.vulkan}
+    setprop ro.hardware.gralloc ${ro.boot.hardware.gralloc}
+
+on init
+    # vCPUs are Apple performance cores: keep the foreground on all of them.
+    write /dev/cpuset/foreground/cpus 0-7
+    write /dev/cpuset/top-app/cpus 0-7
+
+on post-fs-data
+    mkdir /data/vendor/apex 0770 system system
+
+on property:sys.boot_completed=1
+    # Keep the panel at its peak rate (the DisplayModeDirector may otherwise
+    # drop to 60 Hz when idle), and keep the IME visible with the Mac keyboard.
+    exec - system system -- /system/bin/settings put system peak_refresh_rate ${vendor.apex.refresh_rate}
+    exec - system system -- /system/bin/settings put system min_refresh_rate ${vendor.apex.refresh_rate}
+    exec - system system -- /system/bin/settings put secure show_ime_with_hard_keyboard 1
+    # adb over the virtio-net link (gvproxy forwards host:5555).
+    setprop service.adb.tcp.port 5555

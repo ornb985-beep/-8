@@ -52,7 +52,10 @@ pub struct HostHooks {
 pub struct Controls {
     pub display: Arc<DisplayHub>,
     pub touch: InputHandle,
-    pub keys: InputHandle,
+    /// Power / volume / back / home / recents.
+    pub buttons: InputHandle,
+    /// Full keyboard, if enabled in the profile.
+    pub keyboard: Option<InputHandle>,
     pub console: ConsoleInput,
     pub battery: Arc<GoldfishBattery>,
     pub uart: Arc<Pl011>,
@@ -223,9 +226,15 @@ impl Machine {
         let touch = Input::new(InputSpec::touchscreen(cfg.display.width, cfg.display.height, cfg.touch_slots, cfg.display.dpi));
         let touch_h = touch.handle();
         devices.push(Box::new(touch));
-        let keys = Input::new(InputSpec::keyboard());
-        let keys_h = keys.handle();
-        devices.push(Box::new(keys));
+        let buttons = Input::new(InputSpec::buttons());
+        let buttons_h = buttons.handle();
+        devices.push(Box::new(buttons));
+        let mut keyboard_h = None;
+        if cfg.keyboard {
+            let kb = Input::new(InputSpec::keyboard());
+            keyboard_h = Some(kb.handle());
+            devices.push(Box::new(kb));
+        }
         devices.push(Box::new(Rng::new()));
 
         let mut net_rx = None;
@@ -276,26 +285,35 @@ impl Machine {
             gic_mode: hv.gic_mode(),
             gic: geo,
             virtio: &nodes,
-            timer_freq: hv.counter_frequency(),
             model: &format!("{} {}", cfg.identity.manufacturer, cfg.identity.model),
             serial_console: true,
         })?;
         boot::write_dtb(&mem, &placement, &dtb)?;
         apex_core::info!(
-            "kernel {} MiB at {:#x}, initrd {} KiB, dtb at {:#x}, {} vCPUs, {} MiB RAM, {:?} GIC",
+            "kernel {} MiB at {:#x}, initrd {} KiB, dtb at {:#x}, {} vCPUs, {} MiB RAM, {:?} GIC, counter {} MHz",
             kernel.len() >> 20,
             placement.kernel.raw(),
             payload.initrd.len() >> 10,
             placement.dtb.raw(),
             cfg.cpus,
             cfg.memory >> 20,
-            hv.gic_mode()
+            hv.gic_mode(),
+            hv.counter_frequency() / 1_000_000
         );
         apex_core::info!("cmdline: {}", payload.cmdline);
 
         let hub = VcpuHub::new(cpus.clone(), Arc::new(bus), gic);
         Ok(Machine {
-            controls: Controls { display, touch: touch_h, keys: keys_h, console: console_in, battery, uart, net_rx },
+            controls: Controls {
+                display,
+                touch: touch_h,
+                buttons: buttons_h,
+                keyboard: keyboard_h,
+                console: console_in,
+                battery,
+                uart,
+                net_rx,
+            },
             dtb,
             cmdline: payload.cmdline,
             boot_entry: EntryState { pc: placement.kernel.raw(), x0: placement.dtb.raw() },
@@ -345,7 +363,6 @@ impl Machine {
             ("androidboot.hardware".into(), "apex".into()),
             ("androidboot.serialno".into(), cfg.identity.serial.clone()),
             ("androidboot.lcd_density".into(), d.dpi.to_string()),
-            ("androidboot.slot_suffix".into(), "_a".into()),
             ("androidboot.force_normal_boot".into(), "1".into()),
             ("androidboot.verifiedbootstate".into(), "orange".into()),
             ("androidboot.vbmeta.device_state".into(), "unlocked".into()),
@@ -559,8 +576,8 @@ path = "userdata.img"
         assert!(bc.contains("androidboot.apex.refresh_rate = \"120\""), "{bc}");
         assert!(bc.contains("androidboot.apex.model = \"Apex Test\""), "{bc}");
         assert!(bc.contains("androidboot.selinux = \"permissive\""), "{bc}");
-        // disk, console, gpu, touch, keys, rng
-        assert_eq!(root.children.iter().filter(|n| n.name.starts_with("virtio_mmio@")).count(), 6);
+        // disk, console, gpu, touch, buttons, keyboard, rng
+        assert_eq!(root.children.iter().filter(|n| n.name.starts_with("virtio_mmio@")).count(), 7);
 
         m.start().unwrap();
         assert_eq!(m.wait(), StopReason::PowerOff);

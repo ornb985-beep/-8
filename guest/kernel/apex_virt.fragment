@@ -1,0 +1,47 @@
+# Apex-AOSP kernel fragment, applied on top of arch/arm64/configs/gki_defconfig
+# (android16-6.12 or newer). Everything the apex-virt machine exposes is
+# built in so first-stage init needs no vendor modules to find its disks.
+#
+#   kleaf:  bazel run //common:kernel_aarch64_dist \
+#             --defconfig_fragment=//apex:apex_virt.fragment -- --destdir=out/apex
+#   legacy: scripts/kconfig/merge_config.sh -m gki_defconfig apex_virt.fragment
+
+# --- apex-virt platform -----------------------------------------------------
+CONFIG_ARM_GIC_V3=y
+CONFIG_ARM_ARCH_TIMER=y
+CONFIG_ARM_PSCI_FW=y
+CONFIG_HAVE_ARM_SMCCC_DISCOVERY=y
+CONFIG_HW_RANDOM_ARM_SMCCC_TRNG=y
+CONFIG_SERIAL_AMBA_PL011=y
+CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+CONFIG_RTC_DRV_PL031=y
+CONFIG_BATTERY_GOLDFISH=y
+CONFIG_BOOT_CONFIG=y
+
+# --- virtio-mmio transport (GKI ships virtio-pci only) ----------------------
+CONFIG_VIRTIO=y
+CONFIG_VIRTIO_MMIO=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_VIRTIO_CONSOLE=y
+CONFIG_VIRTIO_INPUT=y
+CONFIG_VIRTIO_NET=y
+CONFIG_HW_RANDOM_VIRTIO=y
+CONFIG_VIRTIO_VSOCKETS=y
+
+# --- display: virtio-gpu KMS (EDID-driven 120 Hz mode) ----------------------
+CONFIG_DRM=y
+CONFIG_DRM_VIRTIO_GPU=y
+CONFIG_DRM_VIRTIO_GPU_KMS=y
+CONFIG_DMABUF_HEAPS=y
+CONFIG_DMABUF_HEAPS_SYSTEM=y
+CONFIG_UDMABUF=y
+
+# --- storage ------------------------------------------------------------------
+CONFIG_EFI_PARTITION=y
+CONFIG_BLK_DEV_DM=y
+CONFIG_DM_VERITY=y
+CONFIG_F2FS_FS=y
+CONFIG_EROFS_FS=y
+
+# --- audio (virtio-snd is on the roadmap) ------------------------------------
+CONFIG_SND_VIRTIO=m

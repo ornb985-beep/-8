@@ -1,0 +1,67 @@
+# Board: apex-virt (Apex-AOSP VMM on Apple Silicon Hypervisor.framework).
+
+TARGET_ARCH := arm64
+TARGET_ARCH_VARIANT := armv8-2a
+TARGET_CPU_VARIANT := generic
+TARGET_CPU_ABI := arm64-v8a
+TARGET_SUPPORTS_64_BIT_APPS := true
+
+TARGET_BOARD_PLATFORM := apex
+TARGET_BOOTLOADER_BOARD_NAME := apex
+TARGET_NO_BOOTLOADER := true
+TARGET_NO_RECOVERY := true
+TARGET_USERIMAGES_USE_EXT4 := true
+TARGET_USERIMAGES_USE_F2FS := true
+
+# --- Boot images: header v4, the VMM acts as the bootloader -------------------
+BOARD_BOOT_HEADER_VERSION := 4
+BOARD_INIT_BOOT_HEADER_VERSION := 4
+BOARD_MKBOOTIMG_ARGS += --header_version $(BOARD_BOOT_HEADER_VERSION)
+BOARD_MKBOOTIMG_INIT_ARGS += --header_version $(BOARD_INIT_BOOT_HEADER_VERSION)
+BOARD_BOOTIMAGE_PARTITION_SIZE := 67108864
+BOARD_INIT_BOOT_IMAGE_PARTITION_SIZE := 8388608
+BOARD_VENDOR_BOOTIMAGE_PARTITION_SIZE := 67108864
+BOARD_RAMDISK_USE_LZ4 := true
+BOARD_USES_GENERIC_KERNEL_IMAGE := true
+BOARD_MOVE_GSI_AVB_KEYS_TO_VENDOR_BOOT := true
+
+# Kernel built with guest/kernel/apex_virt.fragment (virtio-mmio built in).
+TARGET_KERNEL_USE ?= 6.12
+TARGET_KERNEL_DIR ?= device/apex/apex_phone-kernel/$(TARGET_KERNEL_USE)
+BOARD_PREBUILT_KERNEL := $(TARGET_KERNEL_DIR)/Image
+BOARD_KERNEL_CMDLINE :=
+BOARD_BOOTCONFIG += androidboot.hardware=apex androidboot.console=hvc0
+
+# --- Dynamic partitions in `super` (a GPT partition of the composite disk) -----
+BOARD_SUPER_PARTITION_SIZE := 8589934592
+BOARD_SUPER_PARTITION_GROUPS := apex_dynamic_partitions
+BOARD_APEX_DYNAMIC_PARTITIONS_SIZE := 8585740288
+BOARD_APEX_DYNAMIC_PARTITIONS_PARTITION_LIST := system system_ext product vendor vendor_dlkm odm system_dlkm
+
+BOARD_SYSTEMIMAGE_FILE_SYSTEM_TYPE := erofs
+BOARD_SYSTEM_EXTIMAGE_FILE_SYSTEM_TYPE := erofs
+BOARD_PRODUCTIMAGE_FILE_SYSTEM_TYPE := erofs
+BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE := erofs
+BOARD_VENDOR_DLKMIMAGE_FILE_SYSTEM_TYPE := erofs
+BOARD_ODMIMAGE_FILE_SYSTEM_TYPE := erofs
+BOARD_SYSTEM_DLKMIMAGE_FILE_SYSTEM_TYPE := erofs
+TARGET_COPY_OUT_SYSTEM_EXT := system_ext
+TARGET_COPY_OUT_PRODUCT := product
+TARGET_COPY_OUT_VENDOR := vendor
+TARGET_COPY_OUT_VENDOR_DLKM := vendor_dlkm
+TARGET_COPY_OUT_ODM := odm
+TARGET_COPY_OUT_SYSTEM_DLKM := system_dlkm
+
+BOARD_USES_METADATA_PARTITION := true
+BOARD_METADATAIMAGE_PARTITION_SIZE := 16777216
+BOARD_USERDATAIMAGE_FILE_SYSTEM_TYPE := f2fs
+BOARD_USERDATAIMAGE_PARTITION_SIZE := 17179869184
+BOARD_FLASH_BLOCK_SIZE := 4096
+
+# --- Verified boot (unlocked developer device) -----------------------------------
+BOARD_AVB_ENABLE := true
+BOARD_AVB_MAKE_VBMETA_IMAGE_ARGS += --flags 3
+
+# --- Security / policy -----------------------------------------------------------
+BOARD_VENDOR_SEPOLICY_DIRS += device/apex/apex_phone/sepolicy
+DEVICE_MANIFEST_FILE += device/apex/apex_phone/manifest.xml

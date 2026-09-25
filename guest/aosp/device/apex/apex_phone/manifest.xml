@@ -1,0 +1,3 @@
+<manifest version="1.0" type="device" target-level="202504">
+    <!-- HALs register their own VINTF fragments; this file only sets the target level. -->
+</manifest>

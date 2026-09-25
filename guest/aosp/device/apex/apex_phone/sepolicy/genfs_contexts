@@ -1,0 +1,1 @@
+genfscon sysfs /devices/platform/9020000.goldfish_battery/power_supply u:object_r:sysfs_batteryinfo:s0

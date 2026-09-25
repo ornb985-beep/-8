@@ -1,0 +1,4 @@
+/dev/dri/*                0666   system     graphics
+/dev/hvc1                 0660   system     system
+/dev/rtc0                 0640   system     system
+/dev/hw_random            0440   root       system
