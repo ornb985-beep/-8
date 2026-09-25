@@ -1,0 +1,40 @@
+name: cloud-vendor
+
+# Pure 64-bit Android 12L system.img + vendor.img for the Apex VMM, repacked
+# from Google's prebuilt sdk_phone64_arm64 (no AOSP compilation), gated on
+# zero 32-bit ELF, and published to the `apex-android12-vendor` release in
+# the format scripts/sync-cloud-vendor.sh expects (docs/ANDROID12.md).
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - guest/vendor-overlay/**
+      - scripts/build-cloud-vendor.sh
+      - tools/ext4tree.py
+      - tools/lpunpack.py
+      - .github/workflows/cloud-vendor.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04   # e2fsprogs 1.47 (mke2fs -d with xattrs, ^orphan_file)
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build system.img + vendor.img
+        run: |
+          df -h .
+          WORK="$RUNNER_TEMP/cloud-vendor" scripts/build-cloud-vendor.sh
+          cat out/cloud/BUILD_INFO.txt
+      - name: Publish release apex-android12-vendor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=apex-android12-vendor
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --target "$GITHUB_SHA" \
+            --title "Apex Android 12L pure 64-bit vendor + system" --notes-file out/cloud/BUILD_INFO.txt
+          gh release edit "$TAG" --notes-file out/cloud/BUILD_INFO.txt
+          gh release upload "$TAG" out/cloud/vendor.img.gz out/cloud/vendor.img.gz.sha256 \
+            out/cloud/system.img.gz out/cloud/system.img.gz.sha256 out/cloud/BUILD_INFO.txt --clobber

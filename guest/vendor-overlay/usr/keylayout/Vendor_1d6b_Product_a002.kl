@@ -1,0 +1,12 @@
+# Apex Buttons (virtio-input): the phone's physical keys.
+key 116   POWER
+key 114   VOLUME_DOWN
+key 115   VOLUME_UP
+key 113   VOLUME_MUTE
+key 158   BACK
+key 172   HOME
+key 580   APP_SWITCH
+key 139   MENU
+key 212   CAMERA
+key 217   SEARCH
+key 143   WAKEUP

@@ -8,3 +8,4 @@
 *.img
 !guest/**/*.img.md
 /build/
+/work/

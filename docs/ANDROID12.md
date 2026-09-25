@@ -110,3 +110,69 @@ An alternative worth evaluating first is the vendor image of Google's
 Android Emulator system image for API 32 (arm64): it is a ready-made vendor
 for a virtual device, but it expects QEMU "goldfish pipe" devices that the
 Apex VMM does not implement.
+
+## Cloud vendor + system: pure 64-bit, from Google's prebuilt emulator build
+
+`scripts/build-cloud-vendor.sh` (CI: `.github/workflows/cloud-vendor.yml`,
+release `apex-android12-vendor`) produces a matched `system.img` +
+`vendor.img` **without compiling AOSP**. The source is Google's official
+Android 12L emulator image `system-images;android-32;default;arm64-v8a` r02,
+i.e. `sdk_phone64_arm64-userdebug` build `SE1B.240122.005`, the 64-bit-only
+product Google made for Apple Silicon hosts:
+
+* `super` is unpacked (`tools/lpunpack.py`); `system_ext` and `product` are
+  folded into `system` (GSI layout) so the Apex boot flow is unchanged:
+  legacy system-as-root on vda2, first-stage mount of vendor only.
+* labels and capabilities are preserved file by file (`tools/ext4tree.py`
+  extracts with xattrs, `mke2fs -d` copies them back).
+* vendor overlay (`guest/vendor-overlay`): `fstab.apex`, `apex.rc` (the
+  device-independent parts of the emulator's `init.ranchu.rc`, which is not
+  imported), the Apex input IDC/key layout, block-device labels for the
+  Apex GPT, and the device identity (nubia NX769J / `pineapple` / QTI SM8650,
+  `ro.opengles.version=196610`, `ro.vndk.version=32`, `ro.zygote=zygote64`).
+* gate: 1555 ELF files across both images and the 23 APEX payloads — 1549
+  AArch64, **0 32-bit**, and 6 eBPF programs (`e_machine` 247, loaded into
+  the kernel by bpfloader, never executed by the CPU). A `--require-64bit`
+  check must accept `EM_BPF`.
+* userdebug: `androidboot.selinux=permissive` is honored, `adb root` works.
+
+Vendor HALs (all 64-bit): keymaster 4.1 + gatekeeper (software), health 2.1,
+power, thermal, lights, vibrator, usb, identity, rebootescrow, audio,
+camera, sensors, gnss, wifi, NN samples, composer 2.4, allocator 3.0,
+`/vendor/etc/vintf/manifest.xml` + fragments for all of them.
+
+Boot on QEMU virt (android12-5.10 GKI, device-tree fstab, same disk layout):
+
+```
+[   11.277490] APEX: vendor mounted (cloud vendor), second stage init running
+[   13.7     ] init: [libfs_mgr]fs_mgr_do_format: Format /dev/block/by-name/userdata as 'ext4'
+[   69.830771] APEX: device nubia NX769J (redmagic9pro/NX769J), hardware qcom, platform pineapple, SoC QTI SM8650, GLES 196610, ABIs arm64-v8a
+[   80.888922] APEX: keystore2 running                  <- starts once and stays up (no SIGSEGV)
+[   80.830687] APEX: surfaceflinger running             <- restarts: no working composer/GLES
+init: process with updatable components 'vendor.hwcomposer-2-4' exited 4 times before boot completed
+```
+
+### Graphics: what this vendor does and does not solve
+
+The vendor's graphics stack is the emulator's **goldfish-opengl** stack:
+`libEGL_emulation`/`libGLESv2_emulation`, `allocator@3.0` + `mapper@3.0`
+(ranchu), `composer@2.4` (ranchu HWC), `vulkan.ranchu`, plus ANGLE
+(`libEGL_angle`, which needs a Vulkan driver). All of them forward rendering
+to a **host** renderer: through the goldfish pipe on QEMU, or through
+virtio-gpu 3D with gfxstream. None of them draws in the guest, so on the 2D
+virtio-gpu path SurfaceFlinger still cannot start. Two ways forward:
+
+1. **gfxstream (no compilation):** keep this vendor and give it its host
+   renderer: the Apex VMM already loads `libgfxstream_backend.dylib`
+   (`display.renderer = "gfxstream"`, from the Android Emulator for macOS
+   arm64). What is missing: the android12-5.10 guest kernel has no virtio-gpu
+   blob/context-init, so the VMM must serve gfxstream through the classic 3D
+   commands (`CTX_CREATE`, `SUBMIT_3D`, `RESOURCE_CREATE_3D`, transfers),
+   and the boot configuration must select the emulator's virtio-gpu transport
+   (`androidboot.hardware.gltransport=virtio-gpu-pipe`, gralloc/egl/hwc
+   `ranchu`/`emulation`). Needs work and validation on the Mac.
+2. **Guest software rendering:** SwiftShader (`vulkan.pastel` + ANGLE),
+   minigbm gralloc 4.0, drm_hwcomposer on `/dev/dri/card0`. No prebuilt
+   64-bit Android 12 binaries of these could be found. Building them needs an
+   AOSP `android-12.1.0_r*` tree (~300 GB disk, 32+ GB RAM), which is more
+   than this cloud container or a GitHub-hosted runner has.
