@@ -1,0 +1,41 @@
+name: android12-kernel
+
+# Builds the Android 12 GKI kernel (android12-5.10) with the Apex fragment,
+# boots it on QEMU with the probe initramfs, and publishes the artifacts to
+# the `apex-android12-kernel` release that scripts/launch-android.sh uses.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - guest/kernel/android12-5.10.fragment
+      - guest/probe/**
+      - scripts/build-kernel.sh
+      - scripts/build-probe.sh
+      - scripts/qemu-probe.sh
+      - .github/workflows/kernel.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld llvm flex bison bc libelf-dev libssl-dev cpio qemu-system-arm
+      - name: Kernel (android12-5.10)
+        run: scripts/build-kernel.sh "$RUNNER_TEMP/kernel-android12"
+      - name: Probe initramfs
+        run: scripts/build-probe.sh
+      - name: Boot test on QEMU virt (GICv3 + virtio-mmio)
+        run: scripts/qemu-probe.sh
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=apex-android12-kernel
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --target "$GITHUB_SHA" \
+            --title "Apex Android 12 kernel (android12-5.10)" --notes "Built by .github/workflows/kernel.yml"
+          gh release upload "$TAG" out/Image.gz out/kernel.sha256 out/kernel.config out/initramfs.cpio.gz out/qemu-probe.log --clobber

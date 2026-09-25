@@ -369,6 +369,54 @@ impl DiskBackend for CompositeDisk {
     }
 }
 
+/// A read-only all-zero disk of a given size (empty partitions in
+/// `apex mkdisk`, which leaves them as holes in a sparse file).
+pub struct ZeroDisk(pub u64);
+
+impl DiskBackend for ZeroDisk {
+    fn size(&self) -> u64 {
+        self.0
+    }
+    fn read_only(&self) -> bool {
+        true
+    }
+    fn read_at(&self, buf: &mut [u8], _offset: u64) -> io::Result<()> {
+        buf.fill(0);
+        Ok(())
+    }
+    fn write_at(&self, _buf: &[u8], _offset: u64) -> io::Result<()> {
+        Err(io::Error::from(io::ErrorKind::PermissionDenied))
+    }
+    fn flush(&self) -> io::Result<()> {
+        Ok(())
+    }
+    fn discard(&self, _offset: u64, _len: u64) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Write any disk to a raw image file, leaving all-zero 1 MiB chunks as
+/// holes (the result is sparse on APFS/ext4). Returns bytes of data written.
+pub fn write_raw_image(disk: &dyn DiskBackend, out: &std::path::Path) -> io::Result<u64> {
+    let f = File::create(out)?;
+    let size = disk.size();
+    f.set_len(size)?;
+    let mut buf = vec![0u8; 1 << 20];
+    let mut off = 0u64;
+    let mut written = 0u64;
+    while off < size {
+        let n = ((size - off) as usize).min(buf.len());
+        disk.read_at(&mut buf[..n], off)?;
+        if buf[..n].iter().any(|&b| b != 0) {
+            f.write_all_at(&buf[..n], off)?;
+            written += n as u64;
+        }
+        off += n as u64;
+    }
+    f.sync_all()?;
+    Ok(written)
+}
+
 /// In-memory disk used by tests and for small synthesized images.
 pub struct MemDisk {
     data: std::sync::RwLock<Vec<u8>>,
@@ -489,6 +537,30 @@ mod tests {
         d.read_at(&mut sig, 512).unwrap();
         assert_eq!(&sig, b"EFI PART");
         assert!(d.read_at(&mut b, d.size() - 10).is_err());
+    }
+
+    #[test]
+    fn raw_image_matches_composite_and_is_sparse() {
+        let d = CompositeDisk::new(
+            "t",
+            vec![
+                PartitionSpec { name: "system".into(), backend: Box::new(MemDisk::new(vec![0x5a; 8192], true)) },
+                PartitionSpec { name: "userdata".into(), backend: Box::new(ZeroDisk(64 << 20)) },
+            ],
+        )
+        .unwrap();
+        let p = std::env::temp_dir().join(format!("apex-raw-{}.img", std::process::id()));
+        let written = write_raw_image(&d, &p).unwrap();
+        let raw = RawDisk::open(&p, true, CacheMode::Unsafe).unwrap();
+        assert_eq!(raw.size(), d.size());
+        assert!(written < 4 << 20, "userdata must stay a hole ({written} bytes written)");
+        let (mut a, mut b) = (vec![0u8; 4096], vec![0u8; 4096]);
+        for off in [0u64, 512, 2048 * 512, d.size() - 4096] {
+            d.read_at(&mut a, off).unwrap();
+            raw.read_at(&mut b, off).unwrap();
+            assert_eq!(a, b, "offset {off:#x}");
+        }
+        let _ = std::fs::remove_file(&p);
     }
 
     #[test]

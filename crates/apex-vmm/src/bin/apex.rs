@@ -24,6 +24,10 @@ USAGE:
     apex inspect <profile.toml> [--dts]  Assemble the machine without running it
     apex bootimg <image>                 Describe an Android boot/init_boot/vendor_boot image
     apex selftest                        Run a built-in guest: MMIO, GIC, timer IRQ, SMP, PSCI
+    apex mkdisk --out <disk.raw> <name>=<image>[:ro] | <name>=@<size> ...
+                                         Write a GPT disk (partition order = argument order)
+    apex mkbootimg --kernel <Image[.gz]> [--ramdisk <file>] --cmdline <text> --out <boot.img>
+                                         Build an Android boot image (header v4)
     apex caps                            Host virtualization capabilities
     apex version
 
@@ -163,6 +167,53 @@ fn cmd_bootimg(path: &str) -> Result<()> {
     Ok(())
 }
 
+fn cmd_mkdisk(out: &str, name: &str, specs: &[String]) -> Result<()> {
+    use apex_devices::virtio::disk::{write_raw_image, CacheMode, CompositeDisk, DiskBackend, PartitionSpec, RawDisk, ZeroDisk};
+    if specs.is_empty() {
+        return Err(apex_core::Error::Config("no partitions given".into()));
+    }
+    let mut parts = Vec::new();
+    for s in specs {
+        let (pname, src) = s.split_once('=').ok_or_else(|| apex_core::Error::Config(format!("bad partition spec `{s}`")))?;
+        let backend: Box<dyn DiskBackend> = if let Some(size) = src.strip_prefix('@') {
+            Box::new(ZeroDisk(parse_size(size)?))
+        } else {
+            let path = src.strip_suffix(":ro").unwrap_or(src);
+            Box::new(
+                RawDisk::open(std::path::Path::new(path), true, CacheMode::Unsafe)
+                    .map_err(|e| apex_core::Error::Config(format!("{path}: {e}")))?,
+            )
+        };
+        parts.push(PartitionSpec { name: pname.to_string(), backend });
+    }
+    let disk = CompositeDisk::new(name, parts).map_err(apex_core::Error::Io)?;
+    for (i, (n, start, len)) in disk.partitions().enumerate() {
+        println!("  /dev/vda{}  {:<10} offset {:#012x}  {:>8} MiB", i + 1, n, start, len >> 20);
+    }
+    let written = write_raw_image(&disk, std::path::Path::new(out))?;
+    println!("wrote {out}: {} MiB disk, {} MiB of data (sparse)", disk.size() >> 20, written >> 20);
+    Ok(())
+}
+
+fn cmd_mkbootimg(kernel: &str, ramdisk: Option<&str>, cmdline: &str, out: &str) -> Result<()> {
+    let k = std::fs::read(kernel)?;
+    // Validate the kernel before packaging it.
+    let (_, hdr) = apex_arm64::boot::image::prepare_kernel(&k)?;
+    let rd = match ramdisk {
+        Some(p) => std::fs::read(p)?,
+        None => Vec::new(),
+    };
+    let img = android::build_boot_v4(&k, &rd, cmdline, android::os_version(12, 1, 0, 2022, 7))?;
+    std::fs::write(out, &img)?;
+    println!(
+        "wrote {out}: boot image v4, kernel {} KiB (image_size {} MiB), ramdisk {} KiB",
+        k.len() >> 10,
+        hdr.image_size >> 20,
+        rd.len() >> 10
+    );
+    Ok(())
+}
+
 /// Exit code 77 = skipped (the host cannot run VMs), as in automake.
 fn cmd_selftest() -> ExitCode {
     use apex_vmm::selftest;
@@ -268,6 +319,23 @@ fn main() -> ExitCode {
             }
         },
         "selftest" => Ok(cmd_selftest()),
+        "mkdisk" => {
+            let Some(out) = args.take_opt("--out") else {
+                eprintln!("--out is required");
+                return ExitCode::from(2);
+            };
+            let name = args.take_opt("--name").unwrap_or_else(|| "apex-android".into());
+            cmd_mkdisk(&out, &name, &args.rest).map(|_| ExitCode::SUCCESS)
+        }
+        "mkbootimg" => {
+            let (Some(kernel), Some(out)) = (args.take_opt("--kernel"), args.take_opt("--out")) else {
+                eprintln!("--kernel and --out are required");
+                return ExitCode::from(2);
+            };
+            let ramdisk = args.take_opt("--ramdisk");
+            let cmdline = args.take_opt("--cmdline").unwrap_or_default();
+            cmd_mkbootimg(&kernel, ramdisk.as_deref(), &cmdline, &out).map(|_| ExitCode::SUCCESS)
+        }
         "caps" => {
             println!("{}", apex_hvf::host_capabilities());
             Ok(ExitCode::SUCCESS)

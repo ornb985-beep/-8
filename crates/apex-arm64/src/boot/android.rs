@@ -283,6 +283,33 @@ pub fn assemble(
     })
 }
 
+/// Encode `os_version` the way mkbootimg does: A.B.C and YYYY-MM.
+pub fn os_version(major: u32, minor: u32, patch: u32, year: u32, month: u32) -> u32 {
+    ((major & 0x7f) << 25) | ((minor & 0x7f) << 18) | ((patch & 0x7f) << 11) | (((year.saturating_sub(2000)) & 0x7f) << 4) | (month & 0xf)
+}
+
+/// Build a boot image with header v4 (kernel + optional generic ramdisk),
+/// equivalent to `mkbootimg --header_version 4`.
+pub fn build_boot_v4(kernel: &[u8], ramdisk: &[u8], cmdline: &str, os_version: u32) -> Result<Vec<u8>> {
+    if cmdline.len() >= 1536 {
+        return Err(Error::Boot(format!("cmdline is {} bytes, boot image v4 allows 1535", cmdline.len())));
+    }
+    let mut d = vec![0u8; V3_PAGE];
+    d[..8].copy_from_slice(BOOT_MAGIC);
+    d[8..12].copy_from_slice(&(kernel.len() as u32).to_le_bytes());
+    d[12..16].copy_from_slice(&(ramdisk.len() as u32).to_le_bytes());
+    d[16..20].copy_from_slice(&os_version.to_le_bytes());
+    d[20..24].copy_from_slice(&1584u32.to_le_bytes()); // header_size (v4)
+    d[40..44].copy_from_slice(&4u32.to_le_bytes());
+    d[44..44 + cmdline.len()].copy_from_slice(cmdline.as_bytes());
+    // signature_size (1580) stays 0: unsigned, as for AVB-less developer boots.
+    d.extend_from_slice(kernel);
+    d.resize(align(d.len(), V3_PAGE), 0);
+    d.extend_from_slice(ramdisk);
+    d.resize(align(d.len(), V3_PAGE), 0);
+    Ok(d)
+}
+
 #[cfg(test)]
 pub(crate) mod testutil {
     use super::*;
@@ -416,6 +443,19 @@ mod tests {
         assert!(text.contains("androidboot.slot_suffix = \"_a\""), "{text}");
         assert!(text.contains("androidboot.serialno = \"APEX0001\""), "{text}");
         assert_eq!(text.matches("androidboot.hardware").count(), 1);
+    }
+
+    #[test]
+    fn build_boot_v4_roundtrips() {
+        let osv = os_version(12, 1, 0, 2022, 7);
+        let img = build_boot_v4(&[9u8; 7000], b"RD", "root=/dev/vda2 ro init=/init", osv).unwrap();
+        let b = parse_boot(&img).unwrap();
+        assert_eq!(b.header_version, 4);
+        assert_eq!(b.kernel, vec![9u8; 7000]);
+        assert_eq!(b.ramdisk, b"RD");
+        assert_eq!(b.cmdline, "root=/dev/vda2 ro init=/init");
+        assert_eq!(b.os_version_string(), "12.1.0 (2022-07)");
+        assert!(build_boot_v4(&[], &[], &"x".repeat(1536), 0).is_err());
     }
 
     #[test]

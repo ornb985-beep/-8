@@ -1,0 +1,57 @@
+# Apex-AOSP kernel fragment for the Android 12 GKI (android12-5.10).
+# Applied on top of arch/arm64/configs/gki_defconfig by scripts/build-kernel.sh.
+# Everything the apex-virt machine needs is built in (=y): no vendor modules.
+# (There is no android12-5.15 branch: Android 12 GKI is 5.4/5.10, 5.15 is Android 13.)
+
+# 4 KiB guest pages: prebuilt Android 12 binaries assume them.
+CONFIG_ARM64_4K_PAGES=y
+# CONFIG_ARM64_16K_PAGES is not set
+# CONFIG_ARM64_64K_PAGES is not set
+
+# Toolchain-independent build (GKI defaults to ThinLTO + CFI with clang 12).
+CONFIG_LTO_NONE=y
+# CONFIG_LTO_CLANG_THIN is not set
+# CONFIG_CFI_CLANG is not set
+# CONFIG_TRIM_UNUSED_KSYMS is not set
+# CONFIG_MODULE_SIG_PROTECT is not set
+
+# apex-virt platform
+CONFIG_ARM_GIC_V3=y
+CONFIG_ARM_ARCH_TIMER=y
+CONFIG_ARM_PSCI_FW=y
+CONFIG_SERIAL_AMBA_PL011=y
+CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+CONFIG_RTC_DRV_PL031=y
+CONFIG_BATTERY_GOLDFISH=y
+CONFIG_BOOT_CONFIG=y
+
+# virtio-mmio and devices
+CONFIG_VIRTIO=y
+CONFIG_VIRTIO_MMIO=y
+CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_VIRTIO_CONSOLE=y
+CONFIG_VIRTIO_INPUT=y
+CONFIG_VIRTIO_NET=y
+CONFIG_HW_RANDOM=y
+CONFIG_HW_RANDOM_VIRTIO=y
+CONFIG_DRM=y
+CONFIG_DRM_VIRTIO_GPU=y
+
+# Android core
+CONFIG_ANDROID=y
+CONFIG_ANDROID_BINDER_IPC=y
+CONFIG_ANDROID_BINDERFS=y
+CONFIG_ASHMEM=y
+CONFIG_STAGING=y
+
+# storage / early userspace
+CONFIG_EFI_PARTITION=y
+CONFIG_EXT4_FS=y
+CONFIG_EROFS_FS=y
+CONFIG_F2FS_FS=y
+CONFIG_BLK_DEV_INITRD=y
+CONFIG_RD_GZIP=y
+CONFIG_RD_LZ4=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y

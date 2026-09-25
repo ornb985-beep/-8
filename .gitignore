@@ -7,3 +7,4 @@
 /images/
 *.img
 !guest/**/*.img.md
+/build/
