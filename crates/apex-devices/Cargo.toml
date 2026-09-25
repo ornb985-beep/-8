@@ -1,0 +1,10 @@
+[package]
+name = "apex-devices"
+description = "Apex-AOSP device models: virtio (blk, net, gpu, input, console, rng), PL011, PL031, goldfish battery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+apex-core.workspace = true

@@ -1,0 +1,10 @@
+[package]
+name = "apex-arm64"
+description = "Apex-AOSP ARM64 architecture layer: exception decode, PSCI, boot protocol, GICv3 model"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+apex-core.workspace = true

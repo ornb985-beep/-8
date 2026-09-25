@@ -1,0 +1,9 @@
+/target
+**/.build/
+**/.swiftpm/
+*.xcodeproj/xcuserdata/
+.DS_Store
+/out/
+/images/
+*.img
+!guest/**/*.img.md

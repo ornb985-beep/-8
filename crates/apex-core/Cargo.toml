@@ -1,0 +1,9 @@
+[package]
+name = "apex-core"
+description = "Apex-AOSP core primitives: guest memory, MMIO bus, IRQ routing, FDT, hypervisor traits"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]

@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/apex-core",
+    "crates/apex-arm64",
+    "crates/apex-devices",
+    "crates/apex-hvf",
+    "crates/apex-vmm",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/ornb985-beep/-8"
+rust-version = "1.85"
+
+# Project Apex-AOSP deliberately has zero third-party crates: every layer from the
+# Hypervisor.framework FFI up to the virtio device models lives in this tree.
+[workspace.dependencies]
+apex-core = { path = "crates/apex-core" }
+apex-arm64 = { path = "crates/apex-arm64" }
+apex-devices = { path = "crates/apex-devices" }
+apex-hvf = { path = "crates/apex-hvf" }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = 1
+
+[profile.dev]
+opt-level = 1

@@ -1,0 +1,21 @@
+[package]
+name = "apex-vmm"
+description = "Apex-AOSP virtual machine monitor: machine assembly, vCPU loop, C ABI for the macOS frontend, CLI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "apex_vmm"
+crate-type = ["rlib", "staticlib"]
+
+[[bin]]
+name = "apex"
+path = "src/bin/apex.rs"
+
+[dependencies]
+apex-core.workspace = true
+apex-arm64.workspace = true
+apex-devices.workspace = true
+apex-hvf.workspace = true
