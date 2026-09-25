@@ -67,8 +67,20 @@ impl HvfVm {
             config = unsafe { create() };
             if !config.is_null() {
                 if let Some(bits) = cfg.ipa_bits {
-                    // SAFETY: valid config object.
-                    check(unsafe { set_ipa(config, bits) }, "hv_vm_config_set_ipa_size")?;
+                    let mut default_bits = 0u32;
+                    if let Some(get_default) = late.vm_config_get_default_ipa_size {
+                        // SAFETY: out-pointer valid.
+                        unsafe { get_default(&mut default_bits) };
+                    }
+                    if default_bits < bits {
+                        // SAFETY: valid config object.
+                        let r = unsafe { set_ipa(config, bits) };
+                        if r != ffi::HV_SUCCESS {
+                            // Not fatal: hv_vm_create reports the real problem
+                            // (e.g. no hypervisor access) or works with the default.
+                            apex_core::warn!("hv_vm_config_set_ipa_size({bits}): {}", ffi::err_name(r));
+                        }
+                    }
                 }
             }
         }

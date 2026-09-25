@@ -90,6 +90,7 @@ pub struct Late {
     pub vm_config_create: Option<unsafe extern "C" fn() -> *mut c_void>,
     pub vm_config_set_ipa_size: Option<unsafe extern "C" fn(*mut c_void, u32) -> hv_return_t>,
     pub vm_config_get_max_ipa_size: Option<unsafe extern "C" fn(*mut u32) -> hv_return_t>,
+    pub vm_config_get_default_ipa_size: Option<unsafe extern "C" fn(*mut u32) -> hv_return_t>,
 
     pub gic_config_create: Option<unsafe extern "C" fn() -> *mut c_void>,
     pub gic_config_set_distributor_base: Option<unsafe extern "C" fn(*mut c_void, hv_ipa_t) -> hv_return_t>,
@@ -123,6 +124,7 @@ pub fn late() -> &'static Late {
         vm_config_create: sym("hv_vm_config_create"),
         vm_config_set_ipa_size: sym("hv_vm_config_set_ipa_size"),
         vm_config_get_max_ipa_size: sym("hv_vm_config_get_max_ipa_size"),
+        vm_config_get_default_ipa_size: sym("hv_vm_config_get_default_ipa_size"),
         gic_config_create: sym("hv_gic_config_create"),
         gic_config_set_distributor_base: sym("hv_gic_config_set_distributor_base"),
         gic_config_set_redistributor_base: sym("hv_gic_config_set_redistributor_base"),

@@ -259,7 +259,7 @@ CI（`.github/workflows/ci.yml`）：Linux 跑全部检查并对 `aarch64-apple-
 * **在 GitHub Actions 的 Apple Silicon（macOS 15）runner 上**：Rust 原生测试全部通过；Swift 前端编译链接成功并打包签名为 `ApexStudio.app`；C ABI 冒烟测试通过；`apex caps` 在真机上确认内核态 vGICv3 符号可运行时解析、`CNTFRQ_EL0 = 24 MHz`。
 
 **尚未验证（需要 Apple Silicon 真机）**
-* 真实 `hv_vcpu_run` 下启动 Linux / Android——HVF 绑定按 Apple 头文件与 QEMU/applevisor 交叉核对编写。CI runner 本身是虚拟机，通常没有嵌套虚拟化，`apex selftest` 在那里会报告跳过；请在本机 Mac 上运行 `out/apex selftest` 作为第一步验证。
+* 真实 `hv_vcpu_run` 下启动 Linux / Android——HVF 绑定按 Apple 头文件与 QEMU/applevisor 交叉核对编写。CI runner 本身是虚拟机、没有嵌套虚拟化（实测 Hypervisor.framework 返回 `HV_UNSUPPORTED`），`apex selftest` 在那里如实报告跳过；请在本机 Mac 上运行 `out/apex selftest` 作为第一步验证。
 * vCPU 按索引串行创建、全部创建完成后才统一放行（与 QEMU 一致），以保证内核 vGIC 的重分发器顺序与 MPIDR 对应——该假设需在真机自检中确认。
 * Swift 前端需在 macOS CI 或本机 `swift build` 验证；120 Hz 实测帧率与触控延迟需真机测量。
 * 内核态 vGIC 模式下，若 HVF 仍将 WFI 陷入用户态，VMM 以 ≤500 µs 的睡眠上限兜底（无法感知宿主内核内的 SGI）；QEMU 的实现表明该模式下 WFI 由框架内部处理，需实测确认。
