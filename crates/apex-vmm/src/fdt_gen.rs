@@ -27,6 +27,9 @@ pub struct FdtParams<'a> {
     pub virtio: &'a [VirtioNode],
     pub model: &'a str,
     pub serial_console: bool,
+    /// Emit `/firmware/android/fstab` so Android's first-stage init mounts
+    /// `/vendor` from `/dev/block/by-name/vendor` (GSI, system-as-root).
+    pub android_fstab: bool,
 }
 
 /// Node name as Linux will name the platform device: `a000000.virtio_mmio`.
@@ -63,6 +66,26 @@ pub fn build(p: &FdtParams) -> Result<Vec<u8>> {
     let _ = apex_core::sys::fill_random(&mut k);
     w.prop_u64("kaslr-seed", u64::from_le_bytes(k))?;
     w.end_node()?;
+
+    // /firmware/android: first-stage mount table (read by init when the
+    // boot has no ramdisk fstab, i.e. legacy system-as-root).
+    if p.android_fstab {
+        w.begin_node("firmware")?;
+        w.begin_node("android")?;
+        w.prop_str("compatible", "android,firmware")?;
+        w.begin_node("fstab")?;
+        w.prop_str("compatible", "android,fstab")?;
+        w.begin_node("vendor")?;
+        w.prop_str("compatible", "android,vendor")?;
+        w.prop_str("dev", "/dev/block/by-name/vendor")?;
+        w.prop_str("type", "ext4")?;
+        w.prop_str("mnt_flags", "ro")?;
+        w.prop_str("fsmgr_flags", "wait")?;
+        w.end_node()?;
+        w.end_node()?;
+        w.end_node()?;
+        w.end_node()?;
+    }
 
     // memory
     w.begin_node(&format!("memory@{:x}", p.ram_base))?;
@@ -192,6 +215,7 @@ mod tests {
             virtio: &virtio,
             model: "Apex One",
             serial_console: true,
+            android_fstab: true,
         })
         .unwrap();
         let (root, _) = fdt::parse(&blob).unwrap();
@@ -210,6 +234,9 @@ mod tests {
         assert_eq!(chosen.prop_str("stdout-path"), Some("/pl011@9000000"));
         assert_eq!(chosen.prop("linux,initrd-end").unwrap(), &0x9010_0000u64.to_be_bytes());
         assert_eq!(chosen.prop("rng-seed").unwrap().len(), 64);
+        let fstab = root.find("/firmware/android/fstab").unwrap();
+        assert_eq!(fstab.prop_str("compatible"), Some("android,fstab"));
+        assert_eq!(root.find("/firmware/android/fstab/vendor").unwrap().prop_str("dev"), Some("/dev/block/by-name/vendor"));
         let v1 = root.find("/virtio_mmio@a001000").unwrap();
         assert_eq!(v1.prop_cells("interrupts").unwrap(), vec![0, 17, 4]);
         assert!(root.find("/pmu").is_none());

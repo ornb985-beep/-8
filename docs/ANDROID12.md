@@ -11,13 +11,15 @@ Target baseline: **Android 12L (API 32), ARM64**, kernel **android12-5.10 GKI**.
 | GSI | Google Android 12L GSI `aosp_arm64-exp-SQ3A.220705.003.A1` (system.img 1.7 GB) | Downloaded from dl.google.com; the zip contains **only system.img + vbmeta.img** |
 | Disk | `apex mkdisk` → `out/android_disk.raw` (GPT: vda1 misc, vda2 system, vda3 vendor, vda4 userdata; sparse, 10 GiB apparent / 1.6 GiB used) | Kernel sees the GPT, mounts system on /dev/vda2 |
 | Boot image | `apex mkbootimg` → `out/boot.img` (header v4) | Round-trip unit test |
+| Minimal vendor | `out/vendor_minimal.img` (32 MiB ext4, `scripts/make-minimal-vendor.sh`): `etc/fstab.apex`, precompiled SELinux policy for the pinned GSI (`scripts/gen-vendor-sepolicy.sh`), `build.prop`, `etc/init/apex.rc` | On QEMU virt with the GSI: first-stage init mounts `/vendor`, loads the policy, second-stage init runs `apex.rc` (log below) |
+| Acceptance | `scripts/ignite-mac.sh` | Host checks, release download, build, then A `apex selftest`, B `--probe`, C `--first-stage`; needs an Apple Silicon Mac |
 | Launcher | `scripts/launch-android.sh` (6 vCPU, 8 GB, 120 Hz real-time vsync, ApexStudio.app) | Script logic; needs an Apple Silicon Mac |
 
 Kernel and probe are rebuilt, boot-tested on QEMU and published to the
 `apex-android12-kernel` release by `.github/workflows/kernel.yml`;
 `launch-android.sh` downloads them from there.
 
-## Where Android 12 stops today
+## First GSI boot (before the minimal vendor)
 
 Booting the unmodified Google GSI with `root=/dev/vda2 ro init=/init` on QEMU virt:
 
@@ -44,6 +46,51 @@ audio, ...). Google does not publish a generic vendor image, so no
 download-only combination can reach the launcher. The GSI plus an empty
 vendor partition cannot render anything even after the fstab issue: without
 a composer HAL SurfaceFlinger cannot start.
+
+## First-stage mount: how it is solved
+
+The GSI boots legacy system-as-root (`root=/dev/vda2 ro init=/init`), so the
+kernel runs `/init` straight from `system.img`. That rules out a ramdisk:
+with an initrd the kernel would execute the ramdisk's `/init` instead, and
+the GSI's init is dynamically linked against `/system`. In this mode Android
+12's first-stage init reads its mount table from the **device tree**, exactly
+like pre-`vendor_boot` phones:
+
+```
+/firmware/android { compatible = "android,firmware";
+    fstab { compatible = "android,fstab";
+        vendor { compatible = "android,vendor"; dev = "/dev/block/by-name/vendor";
+                 type = "ext4"; mnt_flags = "ro"; fsmgr_flags = "wait"; }; }; };
+```
+
+The Apex VMM emits this node whenever a disk is attached, and passes
+`androidboot.boot_devices=a000000.virtio_mmio` (virtio slot 0, the OS disk) so
+ueventd creates `/dev/block/by-name/{misc,system,vendor,userdata}` from the
+GPT partition names. `/system` is the root; `/data` is mounted in the second
+stage from `/vendor/etc/fstab.apex`
+(`androidboot.hardware=apex` selects that file).
+
+Split SELinux then needs the vendor half of the policy. The minimal vendor
+ships `precompiled_sepolicy`, compiled with `secilc` from the GSI's
+`plat_sepolicy.cil` + `mapping/32.0.cil` and a generated
+`plat_pub_versioned.cil`; init uses it because its
+`plat_sepolicy_and_mapping.sha256` matches the GSI.
+
+Same GSI, `vendor_minimal.img` as vda3, QEMU virt (`androidboot.boot_devices=a003e00.virtio_mmio` there):
+
+```
+[    3.678625][   T43] audit: type=1403 audit(...): auid=4294967295 ses=4294967295 lsm=selinux res=1
+[    4.214920][    T1] init: Could not read properties from '/vendor/etc/selinux/vendor_property_contexts': No such file or directory
+[    4.570839][    T1] init: Couldn't load property file '/vendor/default.prop': open() failed: No such file or directory
+[    6.166497][  T139] linkerconfig: Check failed: !"undefined var" SANITIZER_DEFAULT_VENDOR is not defined
+[    8.928993][  T137] APEX: minimal vendor mounted, second stage init running
+[   17.067666][  T183] vdc: Command: cryptfs init_user0 Failed: Status(-8, EX_SERVICE_SPECIFIC): '0: '
+```
+
+Second-stage init, vold and the early services run. This GSI build still
+comes up with SELinux enforcing (`androidboot.selinux=permissive` is ignored),
+and the vendor files carry no labels, hence `avc: denied ... unlabeled` for
+`vendor_init`. The next missing piece is the HALs.
 
 ## What is needed for the launcher (next step)
 

@@ -1,0 +1,10 @@
+# Apex minimal vendor (no HALs): enough for first-stage mount, not for UI.
+ro.vendor.build.version.sdk=32
+ro.vendor.build.version.release=12
+ro.product.vendor.brand=Apex
+ro.product.vendor.device=apex_phone
+ro.product.vendor.manufacturer=Apex
+ro.product.vendor.model=Apex One
+ro.product.vendor.name=apex_phone
+ro.board.platform=apex
+ro.hardware.egl=swiftshader

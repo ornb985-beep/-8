@@ -1,0 +1,3 @@
+# Marker service so the console shows that /vendor was mounted and parsed.
+on early-init
+    write /dev/kmsg "APEX: minimal vendor mounted, second stage init running"

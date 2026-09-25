@@ -22,6 +22,8 @@ apex-hvf → Hypervisor.framework (EL2 · stage-2 · in-kernel vGICv3 on macOS 1
 ## Quick start (Apple Silicon, macOS 14+)
 
 ```bash
+./scripts/ignite-mac.sh                             # one shot: host checks, build, selftest, kernel probe, Android 12 first-stage mount
+./scripts/launch-android.sh                         # Android 12L GSI + minimal vendor in ApexStudio.app (docs/ANDROID12.md)
 scripts/build-macos.sh                              # VMM + ApexStudio.app, signed with the hypervisor entitlement
 out/apex caps                                       # host virtualization capabilities
 out/apex boot --kernel Image                        # smoke test with any arm64 Linux kernel

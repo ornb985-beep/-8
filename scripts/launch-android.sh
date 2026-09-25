@@ -4,13 +4,18 @@
 #   scripts/launch-android.sh --probe     5 s check: kernel + probe initramfs, prints "APEX VMM OK"
 #   scripts/launch-android.sh             Android 12L GSI in ApexStudio.app (Metal window, 120 Hz)
 #   scripts/launch-android.sh --headless  same, console only
+#   scripts/launch-android.sh --first-stage [SECS]
+#                                         GSI + minimal vendor, headless; PASS when
+#                                         first-stage init mounted /vendor and
+#                                         second-stage init runs (default 120 s)
 #
 # Options: --cpus N (6)  --memory SIZE (8G)  --vendor <vendor.img>
 #
-# IMPORTANT: Google's GSI ships system.img only. Android needs a vendor
-# partition (HALs: composer, gralloc, keymaster, health...) built for this
-# virtual hardware. Without --vendor the boot reaches the GSI's init and
-# stops there; see docs/ANDROID12.md.
+# The default vendor partition is out/vendor_minimal.img (fstab.apex,
+# precompiled SELinux policy, build.prop; scripts/make-minimal-vendor.sh).
+# It carries no HALs (composer, gralloc, keymaster, health...), so Android
+# runs init/vold/servicemanager but does not reach the launcher; see
+# docs/ANDROID12.md.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/out"; IMG="$ROOT/images"; mkdir -p "$OUT" "$IMG"
@@ -19,15 +24,16 @@ RELEASE="https://github.com/$REPO/releases/download/apex-android12-kernel"
 GSI_URL="https://dl.google.com/developers/android/sc/images/gsi/aosp_arm64-exp-SQ3A.220705.003.A1-8672226-6554a6c4.zip"
 GSI_SIZE=776920909
 
-MODE=gui CPUS=6 MEM=8G VENDOR=""
+MODE=gui CPUS=6 MEM=8G VENDOR="" FS_SECS=120
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --probe) MODE=probe ;;
+        --first-stage) MODE=first-stage; if [[ "${2:-}" =~ ^[0-9]+$ ]]; then FS_SECS="$2"; shift; fi ;;
         --headless) MODE=headless ;;
         --cpus) CPUS="$2"; shift ;;
         --memory) MEM="$2"; shift ;;
         --vendor) VENDOR="$2"; shift ;;
-        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "unknown option $1" >&2; exit 2 ;;
     esac
     shift
@@ -85,19 +91,24 @@ fi
 
 # 4. GPT disk: vda1 misc, vda2 system, vda3 vendor, vda4 userdata
 if [[ -z "$VENDOR" ]]; then
-    echo "warning: no vendor image (--vendor). The GSI has no HALs to talk to; Android will not reach the launcher." >&2
-    VSPEC="vendor=@256M"
-else
-    VSPEC="vendor=$VENDOR"
+    VENDOR="$OUT/vendor_minimal.img"
+    if [[ ! -f "$VENDOR" ]]; then
+        say "fetching the minimal vendor partition (fstab.apex + SELinux policy)"
+        fetch "$RELEASE/vendor_minimal.img" "$VENDOR" || "$ROOT/scripts/make-minimal-vendor.sh"
+    fi
 fi
-if [[ ! -f "$OUT/android_disk.raw" || "$IMG/system.img" -nt "$OUT/android_disk.raw" || -n "$VENDOR" ]]; then
+VSPEC="vendor=$VENDOR:ro"
+if [[ ! -f "$OUT/android_disk.raw" || "$IMG/system.img" -nt "$OUT/android_disk.raw" || "$VENDOR" -nt "$OUT/android_disk.raw" ]]; then
     say "composing out/android_disk.raw (GPT)"
     "$APEX" mkdisk --out "$OUT/android_disk.raw" --name apex-android12 \
         misc=@1M system="$IMG/system.img":ro "$VSPEC" userdata=@8G
 fi
 
 # 5. boot.img (header v4) with the Android 12 command line
-CMDLINE="console=hvc0 earlycon=pl011,mmio32,0x09000000 loglevel=4 root=/dev/vda2 ro rootwait init=/init androidboot.hardware=apex androidboot.console=hvc0 androidboot.selinux=permissive"
+# The VMM also passes these via bootconfig and describes /vendor in the device
+# tree (/firmware/android/fstab); the OS disk is virtio slot 0.
+LOGLEVEL=4; [[ "$MODE" == first-stage ]] && LOGLEVEL=6
+CMDLINE="console=hvc0 earlycon=pl011,mmio32,0x09000000 loglevel=$LOGLEVEL root=/dev/vda2 ro rootwait init=/init androidboot.hardware=apex androidboot.console=hvc0 androidboot.selinux=permissive androidboot.boot_devices=a000000.virtio_mmio"
 "$APEX" mkbootimg --kernel "$OUT/Image.gz" --cmdline "$CMDLINE" --out "$OUT/boot.img" >/dev/null
 
 # 6. device profile
@@ -128,6 +139,21 @@ serial = "stdout"
 TOML
 
 # 7. go
+if [[ "$MODE" == first-stage ]]; then
+    say "first-stage mount test: GSI + minimal vendor, headless ($FS_SECS s budget)"
+    LOG="$OUT/first-stage.log"
+    perl -e 'alarm shift; exec @ARGV' "$FS_SECS" "$APEX" run "$OUT/android12.toml" >"$LOG" 2>&1 || true
+    grep -E "init: |APEX:|Kernel panic|fs_mgr" "$LOG" | grep -v DM_DEV_STATUS | tail -n 25 || true
+    if grep -q "APEX: minimal vendor mounted" "$LOG"; then
+        say "PASS: first-stage init mounted /vendor from /dev/block/by-name/vendor; second-stage init is running"
+        exit 0
+    elif grep -q "Could not read properties from '/vendor\|/vendor/etc/selinux" "$LOG"; then
+        say "PARTIAL: /vendor is mounted (init reads /vendor/etc); second stage not confirmed — see $LOG"
+        exit 3
+    fi
+    echo "FAIL: /vendor was not mounted — see $LOG" >&2
+    exit 1
+fi
 say "launching Android 12L: $CPUS vCPUs, $MEM, 1080x2400@120"
 if [[ "$MODE" == headless ]]; then
     exec "$APEX" run "$OUT/android12.toml"

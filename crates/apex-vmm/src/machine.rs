@@ -184,9 +184,6 @@ impl Machine {
                             .map_err(|e| Error::Config(format!("partition {} ({}): {e}", p.name, p.path.display())))?;
                         specs.push(PartitionSpec { name: p.name.clone(), backend: Box::new(raw) });
                     }
-                    if os_disk_slot.is_none() {
-                        os_disk_slot = Some(devices.len());
-                    }
                     Arc::new(CompositeDisk::new(name, specs).map_err(|e| Error::Config(format!("composite disk {name}: {e}")))?)
                 }
             };
@@ -195,6 +192,10 @@ impl Machine {
                 DiskConfig::Composite { name, .. } => name.clone(),
             };
             let _ = i;
+            // The first disk is the OS disk: /dev/block/by-name/* hang off it.
+            if os_disk_slot.is_none() {
+                os_disk_slot = Some(devices.len());
+            }
             devices.push(Box::new(Block::new(backend, &serial, cfg.block_queues.min(cfg.cpus as u16).max(1))));
         }
         let console = Console::new("console", {
@@ -287,6 +288,7 @@ impl Machine {
             virtio: &nodes,
             model: &format!("{} {}", cfg.identity.manufacturer, cfg.identity.model),
             serial_console: true,
+            android_fstab: os_disk_slot.is_some(),
         })?;
         boot::write_dtb(&mem, &placement, &dtb)?;
         apex_core::info!(

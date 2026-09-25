@@ -1,0 +1,37 @@
+name: vendor-minimal
+
+# Builds out/vendor_minimal.img (32 MiB ext4: fstab.apex, precompiled SELinux
+# policy for the pinned Android 12L GSI, build.prop) and attaches it to the
+# `apex-android12-kernel` release used by scripts/launch-android.sh and
+# scripts/ignite-mac.sh.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - guest/vendor-minimal/**
+      - scripts/make-minimal-vendor.sh
+      - .github/workflows/vendor.yml
+
+permissions:
+  contents: write
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build vendor_minimal.img
+        run: |
+          scripts/make-minimal-vendor.sh
+          debugfs -R "cat /etc/fstab.apex" out/vendor_minimal.img
+          debugfs -R "ls -l /etc/selinux" out/vendor_minimal.img
+          sha256sum out/vendor_minimal.img | tee out/vendor_minimal.sha256
+      - name: Publish to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=apex-android12-kernel
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --target "$GITHUB_SHA" \
+            --title "Apex Android 12 kernel (android12-5.10)" --notes "Built by .github/workflows/kernel.yml"
+          gh release upload "$TAG" out/vendor_minimal.img out/vendor_minimal.sha256 --clobber
