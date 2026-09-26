@@ -340,6 +340,24 @@ APEX-PROBE: [ro.hardware.egl]: [mesa]   [ro.hardware.gralloc]: [minigbm]   [ro.h
 I/HWComposer: Switching to legacy multi-display mode    (display 0 from drm_hwcomposer)
 ```
 
+Full boot (third run, `Image-gki6.1-a12compat-arm64.gz`):
+
+```
+APEX-GLES: GL_VENDOR 'Mesa' GL_RENDERER 'virgl (LLVMPIPE (LLVM 20.1.2, 256 bits))' GL_VERSION 'OpenGL ES 3.2 Mesa 26.2.3'
+APEX-GLES: PASS: glReadPixels err 0x0, red 32896 green 32640 other 0, lower-left (0,255,0) upper-right (255,0,0)
+APEX-PROBE: boot completed at 268.26 s          (QEMU TCG: software-emulated CPU)
+APEX-PROBE:   mWakefulness=Awake
+APEX-PROBE:   mCurrentFocus=Window{… com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher}
+```
+
+`screencap` of that boot (SurfaceFlinger output, 1080x2400, rendered by the
+NDK-built Mesa through virgl):
+
+![Android 12L launcher on the DRM stack](images/android12-launcher-virgl.png)
+
+`apex_gles_probe` (`guest/gles-probe/gles_probe.c`) draws into a pbuffer with
+whatever driver `ro.hardware.egl` selects and verifies the pixels.
+
 Without virgl (plain 2D virtio-gpu) SurfaceFlinger stops at
 `no suitable EGLConfig found`: Mesa virgl needs the host renderer. On the
 Mac that is the missing piece: **the Apex VMM needs a virglrenderer
