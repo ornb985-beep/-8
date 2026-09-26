@@ -1,0 +1,52 @@
+name: hw-vendor
+
+# vendor_mumu_hw120_pure64.img: the pure 64-bit Android 12L vendor with the
+# goldfish graphics replaced by the virtio-gpu DRM stack (minigbm gralloc via
+# the passthrough allocator/mapper, drm_hwcomposer via composer 2.1, Mesa
+# virgl/zink/venus). Built from AOSP android-12.1.0_r27 sources + Mesa with the
+# NDK; published to the v0.3.0-drm-pure64 pre-release.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/build-drm-hals.sh
+      - scripts/build-mesa-ndk.sh
+      - scripts/build-hw-vendor.sh
+      - tools/aidl_ndk_enum.py
+      - tools/ext4tree.py
+      - .github/workflows/hw-vendor.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang lld bison flex libssl-dev libjsoncpp-dev libgtest-dev
+          pip install meson mako pyyaml packaging
+      - name: Graphics HALs (AOSP android-12.1.0_r27, platform ABI)
+        run: WORK="$RUNNER_TEMP/hals" scripts/build-drm-hals.sh
+      - name: Mesa (NDK)
+        run: WORK="$RUNNER_TEMP/mesa" scripts/build-mesa-ndk.sh
+      - name: Assemble vendor image
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/base-vendor.img.gz" https://github.com/ornb985-beep/-8/releases/download/apex-android12-vendor/vendor.img.gz
+          BASE_VENDOR="$RUNNER_TEMP/base-vendor.img.gz" WORK="$RUNNER_TEMP/hwv" scripts/build-hw-vendor.sh
+          cat out/hw-vendor/REPORT.txt
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=v0.3.0-drm-pure64
+          cp out/drm-hals/build.log out/hw-vendor/drm-hals-build.log
+          tar -C out/drm-hals -czf out/hw-vendor/drm-hals-android12-aarch64.tar.gz vendor SHA256SUMS
+          ( cd out/hw-vendor && sha256sum drm-hals-android12-aarch64.tar.gz > drm-hals-android12-aarch64.tar.gz.sha256 )
+          gh release upload "$TAG" out/hw-vendor/vendor_mumu_hw120_pure64.img.gz out/hw-vendor/vendor_mumu_hw120_pure64.img.gz.sha256 \
+            out/hw-vendor/REPORT.txt out/hw-vendor/drm-hals-android12-aarch64.tar.gz out/hw-vendor/drm-hals-android12-aarch64.tar.gz.sha256 \
+            out/hw-vendor/drm-hals-build.log --clobber

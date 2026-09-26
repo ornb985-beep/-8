@@ -127,15 +127,15 @@ EXTRA_BC=""
 if [[ "$GKI61" == 1 ]]; then
     G="$OUT/gki61"; mkdir -p "$G"
     DRM_RELEASE="https://github.com/$REPO/releases/download/v0.3.0-drm-pure64"
-    if [[ ! -f "$G/Image-gki6.1-arm64.gz" || ! -f "$G/initramfs-gki6.1.cpio.gz" ]]; then
+    if [[ ! -f "$G/Image-gki6.1-a12compat-arm64.gz" || ! -f "$G/initramfs-gki6.1.cpio.gz" ]]; then
         say "fetching the android14-6.1 GKI kernel + virtio module loader"
-        { fetch "$DRM_RELEASE/Image-gki6.1-arm64.gz" "$G/Image-gki6.1-arm64.gz" &&
+        { fetch "$DRM_RELEASE/Image-gki6.1-a12compat-arm64.gz" "$G/Image-gki6.1-a12compat-arm64.gz" &&
           fetch "$DRM_RELEASE/initramfs-gki6.1.cpio.gz" "$G/initramfs-gki6.1.cpio.gz"; } || "$ROOT/scripts/fetch-gki61.sh"
     fi
     # The initramfs only loads modules and mounts vda2; it is not an Android
     # first-stage ramdisk, so init must not switch to /first_stage_ramdisk.
     EXTRA_BC='"androidboot.force_normal_boot" = "0"'
-    "$APEX" mkbootimg --kernel "$G/Image-gki6.1-arm64.gz" --ramdisk "$G/initramfs-gki6.1.cpio.gz" \
+    "$APEX" mkbootimg --kernel "$G/Image-gki6.1-a12compat-arm64.gz" --ramdisk "$G/initramfs-gki6.1.cpio.gz" \
         --cmdline "$CMDLINE" --out "$OUT/boot.img" >/dev/null
 else
     "$APEX" mkbootimg --kernel "$OUT/Image.gz" --cmdline "$CMDLINE" --out "$OUT/boot.img" >/dev/null

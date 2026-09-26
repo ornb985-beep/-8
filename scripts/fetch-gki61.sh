@@ -13,6 +13,8 @@
 #
 # Output (out/gki61/):
 #   Image-gki6.1-arm64.gz       the GKI kernel, byte-identical to Google's
+#   Image-gki6.1-a12compat-arm64.gz  same, release string android14 -> android12
+#                               (needed by Android 12 userspace, see below)
 #   initramfs-gki6.1.cpio.gz    guest/gki-init + modules + modules.load
 #   SHA256SUMS
 # Needs curl, clang, ld.lld, python3, gzip (any host).
@@ -62,6 +64,36 @@ for a in "${ARTIFACTS[@]}"; do
 done
 cp "$CACHE/Image.gz" "$OUT/Image-gki6.1-arm64.gz"
 
+# Android 12 compatibility: 12L's libvintf aborts system_server on a GKI
+# release it does not know ("Convert Android 14 to level '8' goes out of
+# bounds", RuntimeInfo::gkiAndroidReleaseToLevel). The a12compat kernel only
+# rewrites the release string android14 -> android12 (same length) in the
+# utsname/banner/firmware-path copies. The module vermagic string is left
+# as is: kernel and modules still match exactly (and with modversions the
+# release part is not compared anyway).
+say "a12compat kernel (release string android14 -> android12)"
+python3 - "$CACHE/Image.gz" "$OUT/Image-gki6.1-a12compat-arm64.gz" "$KREL" <<'PY'
+import gzip, sys
+src, dst, krel = sys.argv[1], sys.argv[2], sys.argv[3].encode()
+img = bytearray(gzip.open(src).read())
+new = krel.replace(b'-android14-', b'-android12-')
+assert len(new) == len(krel) and new != krel
+vermagic = krel + b' SMP preempt mod_unload modversions aarch64'
+n = kept = 0
+i = img.find(krel)
+while i >= 0:
+    if img[i:i + len(vermagic)] == vermagic:
+        kept += 1
+    else:
+        img[i:i + len(krel)] = new
+        n += 1
+    i = img.find(krel, i + 1)
+assert n >= 3 and kept == 1, (n, kept)
+with open(dst, 'wb') as f:
+    f.write(gzip.compress(bytes(img), 9, mtime=0))
+print(f'patched {n} release strings, kept the module vermagic ({kept})')
+PY
+
 say "building the module loader (guest/gki-init/init.c)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 clang --target=aarch64-linux-gnu -O2 -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static \
@@ -91,6 +123,6 @@ entry("TRAILER!!!", 0)
 open(dst, "wb").write(out)
 PY
 gzip -9 -n -f "$OUT/initramfs-gki6.1.cpio"
-( cd "$OUT" && sha256sum Image-gki6.1-arm64.gz initramfs-gki6.1.cpio.gz >SHA256SUMS )
+( cd "$OUT" && sha256sum Image-gki6.1-arm64.gz Image-gki6.1-a12compat-arm64.gz initramfs-gki6.1.cpio.gz >SHA256SUMS )
 say "GKI $KREL (build $BID)"
 cat "$OUT/SHA256SUMS"

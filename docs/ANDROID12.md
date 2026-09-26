@@ -285,3 +285,70 @@ What it still needs before it can render:
   ships AIDL allocator/composer3, which 12L cannot use. Old Android 12
   Cuttlefish builds are no longer on ci.android.com (404), and no Android 14
   Cuttlefish build id was obtainable (legacy "latest" API: 403).
+
+### Step 4 — the gralloc / composer HALs and the hardware vendor image
+
+Android 12L's system image does **not** contain a passthrough allocator:
+`/system/lib64` only has the HIDL interface libraries
+(`android.hardware.graphics.allocator@2.0.so` …); the `-service`/`-impl`
+modules are vendor modules, and the emulator vendor's allocator 3.0 is
+`GoldfishAllocator` (`/dev/goldfish_pipe`). So they are built here from
+AOSP `android-12.1.0_r27` without an AOSP tree (`scripts/build-drm-hals.sh`,
+~3 min):
+
+* `hidl-gen` and `aidl` are compiled for the host from `system/tools/*` and
+  generate the HIDL / AIDL-NDK headers (AIDL enums by
+  `tools/aidl_ndk_enum.py`; the host aidl's enum path crashes with bison 3.8).
+* device code: NDK clang + AOSP `libc++` headers (`std::__1`),
+  `-fno-rtti -fno-exceptions` like Soong, linked with `--no-undefined`
+  against the 12L platform libraries from the image's VNDK APEX, i.e. the
+  platform ABI, not the NDK's.
+
+| module | role |
+|---|---|
+| `bin/hw/android.hardware.graphics.allocator@2.0-service` + `hw/…allocator@2.0-impl.so` | passthrough allocator → `hw_get_module("gralloc")` |
+| `hw/android.hardware.graphics.mapper@2.0-impl-2.1.so` | in-process mapper (sphal) |
+| `hw/gralloc.minigbm.so` (+ `gralloc.default.so` link) | minigbm gralloc0 HAL on virtio-gpu |
+| `bin/hw/android.hardware.graphics.composer@2.1-service` | composer, HWC2 passthrough |
+| `hw/hwcomposer.drm_minigbm.so` | drm_hwcomposer: KMS on `/dev/dri/card0` |
+
+`scripts/build-hw-vendor.sh` assembles `vendor_mumu_hw120_pure64.img` from
+the apex-android12-vendor image: removes every goldfish / ranchu /
+emulation / ANGLE / qemu file and the services and VINTF entries that
+depended on them (61 files); keeps the generic AOSP audio legacy wrapper
+under its standard name (`android.hardware.audio@7.0-impl.so`, loads
+`audio.primary.default`); installs the HALs above plus Mesa
+(`ro.hardware.egl=mesa`, `ro.hardware.vulkan=virtio`); labels everything;
+declares allocator 2.0 / mapper 2.1 / composer 2.1 / audio 7.0 in VINTF and
+Vulkan 1.3 + GLES AEP features. Gate: 254 ELF, all AArch64, no
+SwiftShader/goldfish/ranchu file.
+
+### Verified on QEMU with virgl (host side = virglrenderer)
+
+QEMU `virtio-gpu-gl-device` (virglrenderer 1.8.8; the cloud host has no GPU,
+so its GL is llvmpipe — the guest side is exactly what runs on the Mac),
+GKI 6.1 + the pure 64-bit 12L system + this vendor:
+
+```
+APEX-PROBE: android.hardware.graphics.allocator@2.0::IAllocator/default   271  hwbinder
+APEX-PROBE: android.hardware.graphics.composer@2.1::IComposer/default     274  hwbinder
+APEX-PROBE: android.hardware.graphics.mapper@2.1::IMapper/default         N/A  passthrough
+APEX-PROBE: android.hardware.audio@7.0::IDevicesFactory/default           238  hwbinder
+APEX-PROBE: [init.svc.surfaceflinger]: [running]        (started once, no restarts)
+APEX-PROBE: [init.svc.bootanim]: [running]              (GLES through Mesa virgl)
+APEX-PROBE: [ro.hardware.egl]: [mesa]   [ro.hardware.gralloc]: [minigbm]   [ro.hardware.hwcomposer]: [drm_minigbm]
+I/HWComposer: Switching to legacy multi-display mode    (display 0 from drm_hwcomposer)
+```
+
+Without virgl (plain 2D virtio-gpu) SurfaceFlinger stops at
+`no suitable EGLConfig found`: Mesa virgl needs the host renderer. On the
+Mac that is the missing piece: **the Apex VMM needs a virglrenderer
+back end** (virgl + venus context types, blob resources mapped via Stage-2);
+its 3D back end today is gfxstream.
+
+**Android 12 + GKI 6.1:** 12L's libvintf aborts system_server on an
+`android14` GKI release ("Convert Android 14 to level '8' goes out of
+bounds"). `fetch-gki61.sh` therefore also emits
+`Image-gki6.1-a12compat-arm64.gz`, identical except for the release string
+(android14 → android12 in the 7 uname/banner copies, module vermagic kept);
+`launch-android.sh --gki61` uses it.
