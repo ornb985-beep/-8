@@ -10,6 +10,7 @@ on:
     paths:
       - scripts/fetch-gki61.sh
       - scripts/build-minigbm-ndk.sh
+      - scripts/build-mesa-ndk.sh
       - guest/gki-init/**
       - guest/minigbm-ndk/**
       - .github/workflows/drm-pure64.yml
@@ -20,7 +21,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
@@ -29,21 +30,26 @@ jobs:
         run: scripts/fetch-gki61.sh
       - name: minigbm (NDK, bionic, aarch64)
         run: WORK="$RUNNER_TEMP/minigbm" scripts/build-minigbm-ndk.sh
+      - name: Mesa (NDK, bionic, aarch64; virgl + zink + venus)
+        run: WORK="$RUNNER_TEMP/mesa" scripts/build-mesa-ndk.sh
       - name: Collect
         run: |
           mkdir -p dist
           cp out/gki61/Image-gki6.1-arm64.gz out/gki61/initramfs-gki6.1.cpio.gz dist/
           cp out/minigbm/libminigbm.so out/minigbm/apex_gbm_probe out/minigbm/apex_gbm_probe.rc dist/
           cp out/minigbm/build.log dist/minigbm-build.log
-          ( cd dist && sha256sum Image-gki6.1-arm64.gz initramfs-gki6.1.cpio.gz libminigbm.so apex_gbm_probe apex_gbm_probe.rc > SHA256SUMS && cat SHA256SUMS )
+          tar -C out/mesa -czf dist/mesa-26.2.3-android32-aarch64.tar.gz vendor SHA256SUMS
+          cp out/mesa/build.log dist/mesa-build.log
+          ( cd dist && sha256sum Image-gki6.1-arm64.gz initramfs-gki6.1.cpio.gz libminigbm.so apex_gbm_probe apex_gbm_probe.rc mesa-26.2.3-android32-aarch64.tar.gz > SHA256SUMS && cat SHA256SUMS )
           sed 's/^ *//' > dist/NOTES.md <<'MD'
           Work in progress: steps 1-2 of the DRM / virtio-gpu graphics stack (docs/ANDROID12.md).
 
           - `Image-gki6.1-arm64.gz`: Google's android14-6.1 GKI release build 16416853, byte-identical (6.1.162-android14-11-gddab21e1a7ae-ab16416853).
           - `initramfs-gki6.1.cpio.gz`: guest/gki-init loader + the matching virtio modules from the same build's kernel_virt_aarch64 target (virtio_mmio, virtio_blk, virtio-gpu, virtio_console, virtio_input, virtio_dma_buf, system_heap, virtio-rng, virtio_net, goldfish_battery = battery power_supply only).
           - `libminigbm.so`, `apex_gbm_probe`: upstream minigbm 96fcdc4 built with NDK r26d for android32 (bionic, AArch64, NEEDED libdrm/liblog/libdl/libc only).
+          - `mesa-26.2.3-android32-aarch64.tar.gz`: Mesa built with the NDK for bionic, drivers virgl + zink (GLES) and virtio/venus (Vulkan), no LLVM, no software rasterizer, no SwiftShader; laid out as vendor/lib64/egl/lib{EGL,GLESv2,GLESv1_CM}_mesa.so, vendor/lib64/libgallium_dri.so, vendor/lib64/hw/vulkan.virtio.so. NEEDED only Android platform libraries. Not yet run on a device: it needs the host side (virglrenderer) and a gralloc HAL.
 
-          Not in this release yet: the vendor image. The Android gralloc 4.0 / composer 2.4 HALs and a GLES driver cannot be built from the NDK alone.
+          Not in this release yet: the vendor image. The Android gralloc 4.0 / composer 2.4 HIDL HALs cannot be built from the NDK alone.
           MD
       - name: Publish
         env:
@@ -54,4 +60,5 @@ jobs:
             --title "v0.3.0-drm-pure64 (WIP: GKI 6.1 + minigbm)" --notes-file dist/NOTES.md
           gh release edit "$TAG" --notes-file dist/NOTES.md
           gh release upload "$TAG" dist/Image-gki6.1-arm64.gz dist/initramfs-gki6.1.cpio.gz dist/libminigbm.so \
-            dist/apex_gbm_probe dist/apex_gbm_probe.rc dist/SHA256SUMS dist/minigbm-build.log --clobber
+            dist/apex_gbm_probe dist/apex_gbm_probe.rc dist/mesa-26.2.3-android32-aarch64.tar.gz \
+            dist/SHA256SUMS dist/minigbm-build.log dist/mesa-build.log --clobber

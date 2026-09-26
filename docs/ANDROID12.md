@@ -252,3 +252,36 @@ driver's gralloc interop. Producing them requires either a (partial) AOSP
 build environment for android-12.1.0 or a platform whose prebuilt images
 already contain them (Android 14 Cuttlefish arm64-only: minigbm, DRM
 composer, SwiftShader, and it matches the android14-6.1 GKI).
+
+### Step 3 — Mesa for bionic (built, not yet run on a device)
+
+`scripts/build-mesa-ndk.sh`: Mesa 26.2.3 with NDK r26d for android32,
+`-Dplatforms=android -Dandroid-stub=true -Dgallium-drivers=virgl,zink
+-Dvulkan-drivers=virtio`, no LLVM, no software rasterizer, libdrm 2.4.123
+linked statically. Builds in ~1.5 min on 4 cores. Output, laid out for
+`/vendor`:
+
+| file | NEEDED |
+|---|---|
+| `lib64/egl/libEGL_mesa.so` | libgallium_dri libhardware liblog libnativewindow libsync libm libdl libc |
+| `lib64/egl/libGLESv2_mesa.so`, `libGLESv1_CM_mesa.so` | libgallium_dri libc |
+| `lib64/libgallium_dri.so` (virgl + zink) | liblog libsync libz libm libdl libc |
+| `lib64/hw/vulkan.virtio.so` (venus, exports `HMI`) | libhardware liblog libnativewindow libsync libm libdl libc |
+
+All AArch64 64-bit, only Android platform libraries (LLNDK/VNDK), no glibc,
+X11 or wayland. The one "swiftshader" string in `libgallium_dri.so` is the
+Khronos enum name `VK_DRIVER_ID_GOOGLE_SWIFTSHADER` in Mesa's Vulkan
+driver-ID table; no SwiftShader code or library is built.
+
+What it still needs before it can render:
+
+* **host side**: virgl and venus forward GL/Vulkan to the host through
+  virglrenderer (venus on macOS: virglrenderer + MoltenVK). The Apex VMM's
+  3D back end today is gfxstream, which speaks neither protocol; the VMM
+  needs a virglrenderer back end (context types virgl / venus, blob
+  resources mapped into the guest via Stage-2).
+* **gralloc**: Android 12L's libui/SurfaceFlinger only talk to HIDL
+  allocator/mapper 2.x-4.x and HIDL composer 2.x; Android 13+ Cuttlefish
+  ships AIDL allocator/composer3, which 12L cannot use. Old Android 12
+  Cuttlefish builds are no longer on ci.android.com (404), and no Android 14
+  Cuttlefish build id was obtainable (legacy "latest" API: 403).
