@@ -106,7 +106,7 @@ if [[ ! -x host/hidl-gen ]]; then
     bison -Wno-other --defines=hidl-gen_y.h -o hidl-gen_y.cpp "$H/hidl-gen_y.yy"
     flex -o hidl-gen_l.cpp "$H/hidl-gen_l.ll"
     sed -i 's/^using token = yy::parser::token;/using token = yy::parser::token;\ntypedef yy::parser::value_type YYSTYPE;\ntypedef yy::parser::location_type YYLTYPE;/' hidl-gen_l.cpp
-    INC="-include cstdint -include cstring -I. -I$H -I$H/utils/include -I$H/utils/include/hidl-util -I$H/host_utils/include
+    INC="-include cstdint -include cstring -include algorithm -I. -I$H -I$H/utils/include -I$H/utils/include/hidl-util -I$H/host_utils/include
          -I$H/host_utils/include/hidl-util -I$H/hashing/include -I$A/system/libbase/include -I$A/system/logging/liblog/include
          -I$A/system/libhwbinder/include -I$A/system/core/libutils/include -I$A/system/core/libcutils/include -I/usr/include/jsoncpp"
     for s in $(ls "$H"/*.cpp) "$H"/utils/FQName.cpp "$H"/utils/FqInstance.cpp "$H"/host_utils/Formatter.cpp \
@@ -124,7 +124,7 @@ if [[ ! -x host/aidl ]]; then
     bison -Wno-other --defines=aidl_language_y.h -o aidl_language_y.cpp "$X/aidl_language_y.yy"
     flex -o aidl_language_l.cpp "$X/aidl_language_l.ll"
     sed -i '0,/#include "aidl_language_y.h"/s//#include "aidl_language_y.h"\ntypedef yy::parser::value_type YYSTYPE;\ntypedef yy::parser::location_type YYLTYPE;/' aidl_language_l.cpp
-    INC="-include cstdint -include cstring -include memory -DFMT_HEADER_ONLY -I. -I$X -I$A/external/fmtlib/include
+    INC="-include cstdint -include cstring -include memory -include algorithm -DFMT_HEADER_ONLY -I. -I$X -I$A/external/fmtlib/include
          -I$A/system/libbase/include -I$A/system/logging/liblog/include -I$A/system/core/libcutils/include -I$A/system/core/libutils/include"
     for s in $(sed -n '/name: "libaidl-common"/,/^}/p' "$X/Android.bp" | grep -oE '"[a-z_]+\.cpp"' | tr -d '"'); do
         clang++ -std=gnu++20 -O1 -w -c $INC -o "a_${s%.cpp}.o" "$X/$s"
